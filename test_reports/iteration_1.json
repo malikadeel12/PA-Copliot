@@ -1,0 +1,43 @@
+{
+  "summary": "Backend pytest (16 tests): 14 passed, 2 failed. Full PA pipeline works — auth (register/login/me), 401 protection, /api/reference, profile update, mock-purchase (starter/pro/clinic), /api/pa/capture with REAL rendered document images (vision OCR returned structured JSON with PatientInformation/InsuranceInformation/DiagnosisInformation), /api/pa/{rid}/dictate, /api/pa/{rid}/grids (portal_match, portals, crosswalk, presets), /api/pa/{rid}/confirm, and /api/pa/{rid}/end (subsequent grids returns 404). Frontend loads on the preview URL; login, dashboard (credit count 360, Start request CTA), buy-credits (3 packs with data-testid), profile save button, and Wizard step-1 capture slots all render with required data-testid attributes. 2 backend failures BOTH root-caused to the same external issue: EMERGENT_LLM_KEY budget cap exceeded when invoking Claude reasoning ('litellm.BadRequestError: OpenAIException - Budget has been exceeded! Current cost: 0.0678, Max budget: 0.001'), which causes /api/pa/{rid}/generate to return 502. The credit-decrement path itself is coded correctly (only deducts on success) and 402 branch also blocked because reasoning never succeeds. OCR (openai/gpt-5.4 vision) does work — the key limit only affects the reasoning call at this iteration.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "/api/pa/{request_id}/generate", "issue": "Returns 502 because EMERGENT_LLM_KEY budget exceeded on Claude claude-sonnet-4-6 reasoning call. Backend log: 'Budget has been exceeded! Current cost: 0.0678, Max budget: 0.001'. Cannot verify credit decrement (-1) or 402 insufficient-credits path end-to-end until the key/budget is raised.", "priority": "CRITICAL"}
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Wizard step 4 (Package/Results)", "issue": "Cannot render 4 panels because /api/pa/generate is blocked by LLM budget cap. Not tested end-to-end from UI.", "affected_selectors": ["panel-analysis","panel-form","panel-suggestions","panel-letter","export-json-btn","results-end-btn"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_pa_copilot.py",
+    "/app/backend/tests/conftest.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Raise / rotate EMERGENT_LLM_KEY budget so anthropic/claude-sonnet-4-6 reasoning can complete (current cap $0.001 vs ~$0.07 per call). This is the only blocker for 100% backend green.",
+    "After key/budget is fixed, retest: /api/pa/{rid}/generate returns 200 with keys filled_form/analysis/suggestions/cover_letter/submission_info, credits decrement by exactly 1, and drained user gets 402."
+  ],
+  "critical_code_review_comments": [
+    "server.py is 443 lines mixing auth + billing + PA pipeline; acceptable now but should be split (routers/) as it grows.",
+    "get_current_user validates Bearer against BOTH JWT and session_token paths — clean, but Bearer is tried twice if it isn't a JWT; harmless.",
+    "PA_STORE is a plain dict without a lock; single-worker uvicorn is fine, but any multi-worker deploy would break TTL/isolation. Note in docs.",
+    "/api/pa/{rid}/generate correctly decrements credit ONLY on success (good). Uses fresh DB read for credit check (good).",
+    "seed_admin correctly updates existing password when env changes (good, matches playbook)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_pa_copilot.py (created)",
+    "/app/backend/tests/conftest.py (created)"
+  ],
+  "success_rate": {"backend": "87.5% (14/16)", "frontend": "100% of screens loaded (wizard step 4 not runnable due to LLM budget)"},
+  "test_credentials": "dr.admin@pacopilot.health / PaCopilot2026! (works). New users auto-created in test with @pacopilot-tests.com domain (real domain required — EmailStr rejects .test TLD).",
+  "seed_data_creation": "Test users created via /api/auth/register during pytest run (prefixed test_*@pacopilot-tests.com and drain_*@pacopilot-tests.com). Not cleaned up (no admin delete endpoint).",
+  "retest_needed": true,
+  "main_agent_can_self_test": false,
+  "context_for_next_testing_agent": "Run: pytest /app/backend/tests/ -v --junitxml=/app/test_reports/pytest/pytest_results.xml. If LLM budget still exceeded, generate/insufficient-credits tests will fail with 502 (see backend log). All other endpoints verified working. Frontend routes: /login, /dashboard, /buy-credits, /profile, /new-request. All required data-testid attributes are present.",
+  "rca of the issue": "External LLM budget cap on EMERGENT_LLM_KEY exhausted (~$0.001 hard limit). Reasoning call costs ~$0.07 → litellm raises BadRequestError → server catches and returns 502. Not a code bug. Reproduction: POST /api/pa/{rid}/generate as authenticated user with a captured/confirmed request → backend log shows 'Budget has been exceeded'. Mitigation: increase budget on the Emergent LLM key, or the platform will need to grant a fresh key."
+}

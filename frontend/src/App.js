@@ -1,56 +1,93 @@
-import { useEffect } from "react";
-import "@/App.css";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import axios from "axios";
-import { HOME } from "@/constants/testIds";
+import React, { useEffect, useRef, useState } from "react";
+import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from "react-router-dom";
+import { Toaster } from "@/components/ui/sonner";
+import { AuthProvider, useAuth } from "@/context/AuthContext";
+import api from "@/lib/api";
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-const API = `${BACKEND_URL}/api`;
+import Login from "@/pages/Login";
+import Dashboard from "@/pages/Dashboard";
+import Profile from "@/pages/Profile";
+import BuyCredits from "@/pages/BuyCredits";
+import Wizard from "@/pages/Wizard";
 
-const Home = () => {
-  const helloWorldApi = async () => {
-    try {
-      const response = await axios.get(`${API}/`);
-      console.log(response.data.message);
-    } catch (e) {
-      console.error(e, `errored out requesting / api`);
-    }
-  };
+function ProtectedRoute({ children }) {
+  const { user, loading } = useAuth();
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-stone-50">
+        <div className="w-10 h-10 rounded-full border-2 border-emerald-600 border-t-transparent animate-spin" />
+      </div>
+    );
+  }
+  if (!user) return <Navigate to="/login" replace />;
+  return children;
+}
+
+// REMINDER: DO NOT HARDCODE THE URL, OR ADD ANY FALLBACKS OR REDIRECT URLS, THIS BREAKS THE AUTH
+function AuthCallback() {
+  const navigate = useNavigate();
+  const { setUser } = useAuth();
+  const processed = useRef(false);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
-    helloWorldApi();
-  }, []);
+    if (processed.current) return;
+    processed.current = true;
+    const hash = window.location.hash;
+    const sessionId = new URLSearchParams(hash.replace("#", "")).get("session_id");
+    if (!sessionId) {
+      navigate("/login", { replace: true });
+      return;
+    }
+    (async () => {
+      try {
+        const { data } = await api.post("/auth/session", {}, { headers: { "X-Session-ID": sessionId } });
+        setUser(data.user);
+        window.history.replaceState(null, "", window.location.pathname);
+        navigate("/dashboard", { replace: true });
+      } catch (e) {
+        setError("Sign-in failed. Please try again.");
+        setTimeout(() => navigate("/login", { replace: true }), 1500);
+      }
+    })();
+  }, [navigate, setUser]);
 
   return (
-    <div>
-      <header className="App-header">
-        <a
-          data-testid={HOME.emergentLink}
-          className="App-link"
-          href="https://emergent.sh"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <img src="https://avatars.githubusercontent.com/in/1201222?s=120&u=2686cf91179bbafbc7a71bfbc43004cf9ae1acea&v=4" />
-        </a>
-        <p className="mt-5">Building something incredible ~!</p>
-      </header>
-    </div>
-  );
-};
-
-function App() {
-  return (
-    <div className="App">
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Home />}>
-            <Route index element={<Home />} />
-          </Route>
-        </Routes>
-      </BrowserRouter>
+    <div className="min-h-screen flex items-center justify-center bg-stone-50">
+      <div className="text-center">
+        <div className="w-10 h-10 mx-auto rounded-full border-2 border-emerald-600 border-t-transparent animate-spin" />
+        <p className="mt-4 text-stone-500 text-sm">{error || "Signing you in securely…"}</p>
+      </div>
     </div>
   );
 }
 
-export default App;
+function AppRouter() {
+  const location = useLocation();
+  if (location.hash?.includes("session_id=")) {
+    return <AuthCallback />;
+  }
+  return (
+    <Routes>
+      <Route path="/login" element={<Login />} />
+      <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+      <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
+      <Route path="/buy-credits" element={<ProtectedRoute><BuyCredits /></ProtectedRoute>} />
+      <Route path="/new-request" element={<ProtectedRoute><Wizard /></ProtectedRoute>} />
+      <Route path="*" element={<Navigate to="/dashboard" replace />} />
+    </Routes>
+  );
+}
+
+export default function App() {
+  return (
+    <div className="App">
+      <BrowserRouter>
+        <AuthProvider>
+          <AppRouter />
+          <Toaster position="top-center" richColors />
+        </AuthProvider>
+      </BrowserRouter>
+    </div>
+  );
+}
