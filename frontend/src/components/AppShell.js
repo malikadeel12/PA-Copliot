@@ -46,9 +46,7 @@ function NavItems({ nav, onNavigate }) {
 function Brand() {
   return (
     <div className="flex items-center gap-2.5">
-      <div className="w-9 h-9 rounded-md bg-emerald-900 flex items-center justify-center border border-emerald-950">
-        <Activity className="w-5 h-5 text-emerald-300" strokeWidth={2.4} />
-      </div>
+      <img src="/pa-logo.png" alt="PA Copilot logo" className="w-9 h-9 object-contain" />
       <div className="leading-none">
         <div className="font-heading font-bold text-stone-900 text-[17px] tracking-tight">PA Copilot</div>
         <div className="text-[9px] uppercase tracking-[0.22em] text-stone-400 font-bold mt-0.5">Prior Authorization</div>

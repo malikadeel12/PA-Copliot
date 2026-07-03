@@ -9,7 +9,7 @@ import { TrustBadge } from "@/components/TrustBadge";
 import { toast } from "sonner";
 import { Activity, ShieldCheck, Clock, FileCheck2, Loader2 } from "lucide-react";
 
-const AUTH_BG = "https://images.unsplash.com/photo-1782397132123-0166b524d6bc?crop=entropy&cs=srgb&fm=jpg&q=85&w=1400";
+const AUTH_BG = "/login-hero.png";
 
 export default function Login() {
   const { user, setUser } = useAuth();
@@ -53,8 +53,8 @@ export default function Login() {
         <div className="absolute inset-0 bg-gradient-to-tr from-emerald-950/90 via-stone-900/75 to-stone-900/70" />
         <div className="absolute inset-0 pa-grid-bg opacity-[0.06]" />
         <div className="relative z-10 flex items-center gap-3">
-          <div className="w-11 h-11 rounded-xl bg-white/95 flex items-center justify-center">
-            <Activity className="w-6 h-6 text-emerald-600" strokeWidth={2.4} />
+          <div className="w-12 h-12 rounded-xl bg-white flex items-center justify-center shadow-lg shadow-black/10">
+            <img src="/pa-logo.png" alt="PA Copilot logo" className="w-9 h-9 object-contain" />
           </div>
           <div className="text-white">
             <div className="font-heading font-bold text-xl tracking-tight">PA Copilot</div>
@@ -89,9 +89,7 @@ export default function Login() {
       <div className="flex items-center justify-center p-6 sm:p-10">
         <div className="w-full max-w-md animate-fade-in-up">
           <div className="lg:hidden flex items-center gap-2.5 mb-8">
-            <div className="w-10 h-10 rounded-xl bg-emerald-600 flex items-center justify-center">
-              <Activity className="w-5 h-5 text-white" strokeWidth={2.4} />
-            </div>
+            <img src="/pa-logo.png" alt="PA Copilot logo" className="w-11 h-11 object-contain" />
             <span className="font-heading font-bold text-xl text-stone-900">PA Copilot</span>
           </div>
 

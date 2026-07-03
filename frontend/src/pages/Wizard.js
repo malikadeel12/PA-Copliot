@@ -40,9 +40,7 @@ export default function Wizard() {
       <header className="sticky top-0 z-50 bg-white border-b border-stone-200 no-print">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-emerald-600 flex items-center justify-center">
-              <Activity className="w-4 h-4 text-white" strokeWidth={2.5} />
-            </div>
+            <img src="/pa-logo.png" alt="PA Copilot logo" className="w-8 h-8 object-contain" />
             <span className="font-heading font-bold text-stone-900 hidden sm:inline">PA Copilot</span>
           </div>
 
