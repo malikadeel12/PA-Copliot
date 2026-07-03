@@ -72,7 +72,7 @@ export default function CaptureStep({ state, patch, onNext }) {
               <button
                 data-testid={`capture-slot-${slot.key}`}
                 onClick={() => inputs.current[slot.key]?.click()}
-                className={`relative w-full aspect-[3/4] rounded-2xl overflow-hidden border-2 flex flex-col items-center justify-center text-center p-4 transition-all
+                className={`relative w-full aspect-[3/4] rounded-lg overflow-hidden border-2 flex flex-col items-center justify-center text-center p-4 transition-all
                   ${img ? "border-emerald-500 bg-emerald-50/40" : "border-dashed border-stone-300 bg-white hover:border-emerald-400 hover:bg-stone-50"}`}
               >
                 {img ? (
@@ -115,7 +115,7 @@ export default function CaptureStep({ state, patch, onNext }) {
           </Button>
         </div>
       ) : (
-        <div className="mt-8 rounded-2xl bg-white border border-stone-200 p-6 shadow-sm animate-fade-in-up">
+        <div className="mt-8 rounded-lg bg-white border border-stone-300 p-6 shadow-sm animate-fade-in-up">
           <div className="flex items-center gap-2 text-emerald-700"><CheckCircle2 className="w-5 h-5" /><span className="font-heading font-semibold">Extracted data</span></div>
           <ExtractedGrid data={extractedPreview} />
           <div className="mt-6 flex justify-end gap-3">

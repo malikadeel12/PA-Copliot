@@ -82,7 +82,7 @@ export default function Login() {
             ))}
           </div>
         </div>
-        <div className="relative z-10"><TrustBadge className="bg-white/10 border-white/20 text-emerald-100" /></div>
+        <div className="relative z-10"><TrustBadge /></div>
       </div>
 
       {/* Right — form */}

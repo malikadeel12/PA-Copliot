@@ -92,7 +92,7 @@ export default function ValidateStep({ state, patch, onBack, onNext, refreshUser
 
       <div className="mt-8 grid lg:grid-cols-2 gap-4">
         {/* Payer portal */}
-        <div className="rounded-2xl bg-white border border-stone-200 p-5 shadow-sm">
+        <div className="rounded-lg bg-white border border-stone-300 p-5 shadow-sm">
           <div className="flex items-center gap-2 text-stone-800"><Route className="w-4 h-4 text-emerald-600" /><span className="font-heading font-semibold text-sm">Payer Portal Destination</span></div>
           {grids?.portal_match?.auto_matched && <span className="mt-2 inline-block text-[11px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">Auto-matched from insurance card</span>}
           <Select value={portal} onValueChange={setPortal}>
@@ -106,7 +106,7 @@ export default function ValidateStep({ state, patch, onBack, onNext, refreshUser
         </div>
 
         {/* Quantity + place */}
-        <div className="rounded-2xl bg-white border border-stone-200 p-5 shadow-sm">
+        <div className="rounded-lg bg-white border border-stone-300 p-5 shadow-sm">
           <div className="flex items-center gap-2 text-stone-800"><Layers className="w-4 h-4 text-emerald-600" /><span className="font-heading font-semibold text-sm">Quantity & Place of Service</span></div>
           <Select value={quantity} onValueChange={setQuantity}>
             <SelectTrigger data-testid="validate-quantity-select" className="mt-3 h-11"><SelectValue placeholder="Quantity / duration" /></SelectTrigger>
@@ -120,7 +120,7 @@ export default function ValidateStep({ state, patch, onBack, onNext, refreshUser
       </div>
 
       {/* Code cross-walk */}
-      <div className="mt-4 rounded-2xl bg-white border border-stone-200 p-5 shadow-sm">
+      <div className="mt-4 rounded-lg bg-white border border-stone-300 p-5 shadow-sm">
         <div className="flex items-center gap-2 text-stone-800"><ShieldQuestion className="w-4 h-4 text-emerald-600" /><span className="font-heading font-semibold text-sm">Code Binding & Cross-Walk</span></div>
         <p className="text-xs text-stone-400 mt-1">Confirm each ICD-10 → procedure/drug code mapping. Low confidence must be reviewed.</p>
         <div className="mt-3 space-y-2">
@@ -161,7 +161,7 @@ export default function ValidateStep({ state, patch, onBack, onNext, refreshUser
       </div>
 
       {/* Modifiers */}
-      <div className="mt-4 rounded-2xl bg-white border border-stone-200 p-5 shadow-sm">
+      <div className="mt-4 rounded-lg bg-white border border-stone-300 p-5 shadow-sm">
         <span className="font-heading font-semibold text-sm text-stone-800">Applicable modifiers</span>
         <div className="mt-3 flex flex-wrap gap-2">
           {(grids?.presets?.modifier_presets || []).slice(0, 16).map((m) => (
@@ -175,7 +175,7 @@ export default function ValidateStep({ state, patch, onBack, onNext, refreshUser
       </div>
 
       {/* Urgency */}
-      <div className="mt-4 rounded-2xl bg-white border border-stone-200 p-5 shadow-sm">
+      <div className="mt-4 rounded-lg bg-white border border-stone-300 p-5 shadow-sm">
         <div className="flex items-center justify-between">
           <div>
             <span className="font-heading font-semibold text-sm text-stone-800">Urgent request</span>

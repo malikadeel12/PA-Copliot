@@ -176,7 +176,7 @@ export default function ResultsStep({ state, onExit }) {
         </Panel>
       </div>
 
-      <div className="mt-8 flex flex-col sm:flex-row items-center justify-between gap-4 no-print rounded-2xl border border-emerald-100 bg-emerald-50/60 p-5">
+      <div className="mt-8 flex flex-col sm:flex-row items-center justify-between gap-4 no-print rounded-lg border border-emerald-200 bg-emerald-50 p-5">
         <div className="flex items-center gap-3">
           <ShieldCheck className="w-5 h-5 text-emerald-600" />
           <p className="text-sm text-stone-600">Done? Ending the session immediately purges all data from memory.</p>
@@ -191,9 +191,9 @@ export default function ResultsStep({ state, onExit }) {
 
 function Panel({ icon: Icon, title, testid, children }) {
   return (
-    <div data-testid={testid} className="bg-white border border-stone-200 rounded-2xl p-6 shadow-sm flex flex-col break-inside-avoid">
+    <div data-testid={testid} className="bg-white border border-stone-300 rounded-lg p-6 shadow-sm flex flex-col break-inside-avoid">
       <div className="flex items-center gap-2 mb-4">
-        <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center"><Icon className="w-4 h-4 text-emerald-600" /></div>
+        <div className="w-8 h-8 rounded-md border border-stone-200 bg-stone-50 flex items-center justify-center"><Icon className="w-4 h-4 text-emerald-800" /></div>
         <h3 className="font-heading font-semibold text-stone-900">{title}</h3>
       </div>
       {children}

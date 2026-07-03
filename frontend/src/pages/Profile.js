@@ -48,8 +48,8 @@ export default function Profile() {
           <ArrowLeft className="w-4 h-4" /> Back
         </button>
         <div className="mt-4 flex items-center gap-4">
-          <div className="w-14 h-14 rounded-2xl bg-emerald-50 flex items-center justify-center">
-            <User2 className="w-7 h-7 text-emerald-600" />
+          <div className="w-14 h-14 rounded-lg border border-stone-200 bg-stone-50 flex items-center justify-center">
+            <User2 className="w-7 h-7 text-emerald-800" />
           </div>
           <div>
             <h1 className="font-heading text-3xl font-semibold tracking-tight text-stone-900">Prescriber profile</h1>
@@ -57,7 +57,11 @@ export default function Profile() {
           </div>
         </div>
 
-        <div className="mt-8 rounded-2xl bg-white border border-stone-200 p-6 sm:p-8 shadow-sm space-y-5">
+        <div className="mt-8 rounded-lg bg-white border border-stone-300 shadow-sm overflow-hidden">
+          <div className="px-6 sm:px-8 py-3 border-b border-stone-200 bg-stone-50/70">
+            <span className="text-[11px] font-bold uppercase tracking-[0.15em] text-stone-500">Identity & facility</span>
+          </div>
+          <div className="p-6 sm:p-8 space-y-5">
           {field("name", "Full name", "Dr. Jane Smith, MD")}
           <div className="grid sm:grid-cols-2 gap-5">
             {field("npi", "NPI (10 digits)", "1234567890")}
@@ -77,6 +81,7 @@ export default function Profile() {
             className="h-11 px-6 bg-emerald-900 hover:bg-emerald-800 text-white font-semibold rounded-md border border-emerald-950 transition-colors">
             {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Stethoscope className="w-4 h-4 mr-2" /> Save profile</>}
           </Button>
+          </div>
         </div>
       </main>
     </div>

@@ -68,7 +68,7 @@ export default function DictationStep({ state, patch, onBack, onNext }) {
       </div>
 
       {/* Suggested script */}
-      <div className="mt-6 rounded-2xl bg-white border border-stone-200 p-6 shadow-sm">
+      <div className="mt-6 rounded-lg bg-white border border-stone-300 p-6 shadow-sm">
         <div className="flex items-center justify-between">
           <span className="text-xs font-semibold uppercase tracking-wider text-stone-500">Suggested script</span>
           <Button data-testid="dictation-use-template" variant="ghost" size="sm" onClick={useTemplate} className="text-emerald-700 hover:bg-emerald-50">

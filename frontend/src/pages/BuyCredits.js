@@ -47,27 +47,29 @@ export default function BuyCredits() {
           <p className="mt-2 text-xs text-stone-400 uppercase tracking-wider">Demo checkout — no real payment processed yet</p>
         </div>
 
-        <div className="mt-10 grid sm:grid-cols-3 gap-6">
+        <div className="mt-10 grid sm:grid-cols-3 gap-5">
           {PACKS.map((p) => (
             <div key={p.id}
-              className={`relative rounded-2xl border p-6 flex flex-col ${p.highlight ? "border-emerald-500 bg-white shadow-lg shadow-emerald-600/10 ring-1 ring-emerald-500" : "border-stone-200 bg-white shadow-sm"}`}>
-              {p.highlight && (
-                <span className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 bg-emerald-600 text-white text-xs font-semibold rounded-full uppercase tracking-wider">Most popular</span>
-              )}
-              <h3 className="font-heading text-lg font-semibold text-stone-900">{p.name}</h3>
-              <div className="mt-3 flex items-baseline gap-1">
-                <span className="font-mono text-4xl font-semibold text-stone-900">${p.price}</span>
+              className={`relative rounded-lg border bg-white flex flex-col overflow-hidden transition-colors ${p.highlight ? "border-emerald-900 ring-1 ring-emerald-900" : "border-stone-300 hover:border-stone-400"}`}>
+              <div className={`px-6 py-3 border-b flex items-center justify-between ${p.highlight ? "border-emerald-800 bg-emerald-900 text-white" : "border-stone-200 bg-stone-50/70 text-stone-500"}`}>
+                <span className="text-[11px] font-bold uppercase tracking-[0.15em]">{p.name}</span>
+                {p.highlight && <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-800 border border-emerald-700 text-emerald-200">Popular</span>}
               </div>
-              <div className="mt-1 text-sm text-stone-500">{p.credits} credits · {p.per}</div>
-              <ul className="mt-5 space-y-2 text-sm text-stone-600 flex-1">
-                <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-600" /> {p.credits} full AI analyses</li>
-                <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-600" /> 4-panel package + export</li>
-                <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-600" /> Zero data retention</li>
-              </ul>
-              <Button data-testid={`buy-pack-${p.id}`} onClick={() => buy(p.id)} disabled={busy === p.id}
-                className={`mt-6 h-11 font-semibold rounded-md border transition-colors ${p.highlight ? "bg-emerald-900 hover:bg-emerald-800 text-white border-emerald-950" : "bg-white hover:bg-stone-50 text-stone-900 border-stone-300"}`}>
-                {busy === p.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Zap className="w-4 h-4 mr-1.5" /> Get {p.credits} credits</>}
-              </Button>
+              <div className="p-6 flex flex-col flex-1">
+                <div className="flex items-baseline gap-1.5 border-b border-dashed border-stone-200 pb-4">
+                  <span className="font-mono text-5xl font-semibold tracking-tighter text-stone-900 leading-none">${p.price}</span>
+                </div>
+                <div className="mt-3 text-sm text-stone-500"><span className="font-mono font-semibold text-stone-700">{p.credits}</span> credits · {p.per}</div>
+                <ul className="mt-5 space-y-2.5 text-sm text-stone-600 flex-1">
+                  <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-700 shrink-0" /> {p.credits} full AI analyses</li>
+                  <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-700 shrink-0" /> 4-panel package + export</li>
+                  <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-700 shrink-0" /> Zero data retention</li>
+                </ul>
+                <Button data-testid={`buy-pack-${p.id}`} onClick={() => buy(p.id)} disabled={busy === p.id}
+                  className={`mt-6 h-11 font-semibold rounded-md border transition-colors ${p.highlight ? "bg-emerald-900 hover:bg-emerald-800 text-white border-emerald-950" : "bg-white hover:bg-stone-50 text-stone-900 border-stone-300"}`}>
+                  {busy === p.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Zap className="w-4 h-4 mr-1.5" /> Get {p.credits} credits</>}
+                </Button>
+              </div>
             </div>
           ))}
         </div>
