@@ -124,6 +124,7 @@ def public_user(doc: dict) -> dict:
         "signature_data_url": doc.get("signature_data_url"),
         "credits": doc.get("credits", 0),
         "auth_provider": doc.get("auth_provider", "password"),
+        "role": doc.get("role", "physician"),
     }
 
 
@@ -160,6 +161,12 @@ async def get_current_user(request: Request) -> dict:
                     return doc
 
     raise HTTPException(status_code=401, detail="Not authenticated")
+
+
+async def get_current_admin(user: dict = Depends(get_current_user)) -> dict:
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return user
 
 
 def set_jwt_cookie(response: Response, token: str):
@@ -285,6 +292,68 @@ async def stats(user: dict = Depends(get_current_user)):
         "member_since": user.get("created_at"),
         "last_activity": last[0]["created_at"] if last else None,
     }
+
+
+# ---------------------------------------------------------------------------
+# Admin (role-gated)
+# ---------------------------------------------------------------------------
+class GrantCreditsIn(BaseModel):
+    amount: int
+
+
+@api.get("/admin/overview")
+async def admin_overview(admin: dict = Depends(get_current_admin)):
+    total_users = await db.users.count_documents({})
+    total_admins = await db.users.count_documents({"role": "admin"})
+    total_analyses = await db.usage_events.count_documents({"event_type": "pa_request_completed"})
+    purchase_docs = await db.credit_transactions.find({"type": "purchase"}, {"_id": 0, "amount": 1}).to_list(100000)
+    total_credits_purchased = sum(d.get("amount", 0) for d in purchase_docs)
+    balance_docs = await db.users.find({}, {"_id": 0, "credits": 1}).to_list(100000)
+    total_credits_outstanding = sum(d.get("credits", 0) for d in balance_docs)
+    google_users = await db.users.count_documents({"auth_provider": "google"})
+    return {
+        "total_users": total_users,
+        "total_admins": total_admins,
+        "total_physicians": total_users - total_admins,
+        "google_users": google_users,
+        "total_analyses": total_analyses,
+        "total_credits_purchased": total_credits_purchased,
+        "total_credits_outstanding": total_credits_outstanding,
+    }
+
+
+@api.get("/admin/users")
+async def admin_users(admin: dict = Depends(get_current_admin)):
+    docs = await db.users.find({}, {"_id": 0, "password_hash": 0}).sort("created_at", -1).to_list(500)
+    out = []
+    for d in docs:
+        analyses = await db.usage_events.count_documents(
+            {"user_id": d["user_id"], "event_type": "pa_request_completed"})
+        out.append({
+            "user_id": d["user_id"],
+            "email": d["email"],
+            "name": d.get("name"),
+            "role": d.get("role", "physician"),
+            "auth_provider": d.get("auth_provider", "password"),
+            "credits": d.get("credits", 0),
+            "analyses": analyses,
+            "created_at": d.get("created_at"),
+        })
+    return {"users": out}
+
+
+@api.post("/admin/users/{user_id}/grant-credits")
+async def admin_grant_credits(user_id: str, body: GrantCreditsIn, admin: dict = Depends(get_current_admin)):
+    target = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    await db.users.update_one({"user_id": user_id}, {"$inc": {"credits": body.amount}})
+    await db.credit_transactions.insert_one({
+        "user_id": user_id, "type": "admin_grant", "amount": body.amount,
+        "granted_by": admin["user_id"], "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    doc = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    return {"user_id": user_id, "credits": doc.get("credits", 0)}
 
 
 # ---------------------------------------------------------------------------

@@ -4,20 +4,20 @@ import { useAuth } from "@/context/AuthContext";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import {
   Activity, LayoutDashboard, FilePlus2, CreditCard, User, LogOut,
-  Menu, ShieldCheck,
+  Menu, ShieldCheck, ShieldAlert,
 } from "lucide-react";
 
-const NAV = [
+const BASE_NAV = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { to: "/new-request", label: "New request", icon: FilePlus2 },
   { to: "/buy-credits", label: "Billing", icon: CreditCard },
   { to: "/profile", label: "Profile", icon: User },
 ];
 
-function NavItems({ onNavigate }) {
+function NavItems({ nav, onNavigate }) {
   return (
     <nav className="flex flex-col gap-1">
-      {NAV.map((item) => (
+      {nav.map((item) => (
         <NavLink
           key={item.to}
           to={item.to}
@@ -67,6 +67,11 @@ export default function AppShell({ title, children }) {
     navigate("/login");
   };
 
+  const isAdmin = user?.role === "admin";
+  const nav = isAdmin
+    ? [{ to: "/admin", label: "Admin", icon: ShieldAlert }, ...BASE_NAV]
+    : BASE_NAV;
+
   const SidebarBody = (
     <div className="flex flex-col h-full">
       <div className="px-5 h-16 flex items-center border-b border-stone-200">
@@ -74,7 +79,7 @@ export default function AppShell({ title, children }) {
       </div>
       <div className="p-3 flex-1">
         <div className="px-3 mb-2 text-[10px] font-bold uppercase tracking-[0.18em] text-stone-400">Navigate</div>
-        <NavItems onNavigate={() => setOpen(false)} />
+        <NavItems nav={nav} onNavigate={() => setOpen(false)} />
       </div>
       <div className="p-3 border-t border-stone-200 space-y-2">
         <button

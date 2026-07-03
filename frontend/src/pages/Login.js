@@ -18,7 +18,7 @@ export default function Login() {
   const [form, setForm] = useState({ name: "", email: "", password: "" });
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => { if (user) navigate("/dashboard", { replace: true }); }, [user, navigate]);
+  useEffect(() => { if (user) navigate(user.role === "admin" ? "/admin" : "/dashboard", { replace: true }); }, [user, navigate]);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -31,7 +31,7 @@ export default function Login() {
       const { data } = await api.post(endpoint, payload);
       setUser(data.user);
       toast.success(mode === "login" ? "Welcome back" : "Account created — 5 free credits added");
-      navigate("/dashboard", { replace: true });
+      navigate(data.user?.role === "admin" ? "/admin" : "/dashboard", { replace: true });
     } catch (err) {
       toast.error(formatApiError(err.response?.data?.detail) || err.message);
     } finally {
