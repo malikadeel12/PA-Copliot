@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import api, { formatApiError } from "@/lib/api";
-import AppHeader from "@/components/AppHeader";
+import AppShell from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -41,9 +41,8 @@ export default function Profile() {
   );
 
   return (
-    <div className="min-h-screen bg-stone-50">
-      <AppHeader />
-      <main className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-10 animate-fade-in-up">
+    <AppShell title="Prescriber profile">
+      <div className="max-w-3xl mx-auto animate-fade-in-up">
         <button data-testid="profile-back" onClick={() => navigate("/dashboard")} className="flex items-center gap-1.5 text-sm text-stone-500 hover:text-stone-800 transition-colors">
           <ArrowLeft className="w-4 h-4" /> Back
         </button>
@@ -83,7 +82,7 @@ export default function Profile() {
           </Button>
           </div>
         </div>
-      </main>
-    </div>
+      </div>
+    </AppShell>
   );
 }

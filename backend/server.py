@@ -265,6 +265,28 @@ async def update_profile(body: ProfileIn, user: dict = Depends(get_current_user)
     return public_user(doc)
 
 
+@api.get("/stats")
+async def stats(user: dict = Depends(get_current_user)):
+    """Anonymous usage aggregates for the signed-in user. No PHI — counts only."""
+    uid = user["user_id"]
+    total_analyses = await db.usage_events.count_documents({"user_id": uid, "event_type": "pa_request_completed"})
+    credits_used = await db.credit_transactions.count_documents({"user_id": uid, "type": "consume"})
+    purchase_docs = await db.credit_transactions.find(
+        {"user_id": uid, "type": "purchase"}, {"_id": 0, "amount": 1}
+    ).to_list(1000)
+    credits_purchased = sum(d.get("amount", 0) for d in purchase_docs)
+    last = await db.usage_events.find({"user_id": uid}, {"_id": 0, "created_at": 1}) \
+        .sort("created_at", -1).limit(1).to_list(1)
+    return {
+        "total_analyses": total_analyses,
+        "credits_used": credits_used,
+        "credits_purchased": credits_purchased,
+        "credits_balance": user.get("credits", 0),
+        "member_since": user.get("created_at"),
+        "last_activity": last[0]["created_at"] if last else None,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Billing (mock credits)
 # ---------------------------------------------------------------------------
