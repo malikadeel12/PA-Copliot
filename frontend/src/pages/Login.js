@@ -151,11 +151,6 @@ export default function Login() {
             <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="" className="w-4 h-4 mr-2" />
             Continue with Google
           </Button>
-
-          <p className="mt-6 text-center text-xs text-stone-400 leading-relaxed">
-            PA Copilot processes documents only during your session and purges everything on export.
-            This is decision-support, not a payer guarantee.
-          </p>
         </div>
       </div>
     </div>
