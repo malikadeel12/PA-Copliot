@@ -1,0 +1,123 @@
+{
+  "theme": "LIGHT",
+  "archetype": "Archetype 1: Organic & Earthy",
+  "core_philosophy": "High-speed clinical workflow tool prioritizing trust ('zero data retention') and precision. The aesthetic is clean, grounded, and medical, using organic stone and emerald tones to reduce clinical anxiety while maintaining strict data-density for the physician.",
+  "typography": {
+    "heading_font": "Outfit",
+    "body_font": "IBM Plex Sans",
+    "rules": {
+      "h1": "text-4xl sm:text-5xl font-semibold tracking-tight text-stone-900",
+      "h2": "text-2xl sm:text-3xl font-medium tracking-tight text-stone-800",
+      "h3": "text-xl sm:text-2xl font-medium text-stone-800",
+      "body": "text-base leading-relaxed text-stone-600",
+      "labels": "text-xs font-semibold tracking-[0.1em] uppercase text-stone-500",
+      "data_points": "font-mono text-sm tracking-tight text-stone-700"
+    }
+  },
+  "colors": {
+    "background": "bg-stone-50",
+    "surface": "bg-white",
+    "surface_glass": "bg-white/80 backdrop-blur-xl border border-stone-200/50",
+    "border": "border-stone-200",
+    "text": {
+      "primary": "text-stone-900",
+      "secondary": "text-stone-500",
+      "tertiary": "text-stone-400"
+    },
+    "brand": {
+      "primary": "bg-emerald-600",
+      "primary_hover": "bg-emerald-700",
+      "primary_text": "text-emerald-700"
+    },
+    "semantic": {
+      "success_bg": "bg-emerald-50",
+      "success_text": "text-emerald-700",
+      "success_border": "border-emerald-200",
+      "warning_bg": "bg-amber-50",
+      "warning_text": "text-amber-700",
+      "warning_border": "border-amber-200",
+      "danger_bg": "bg-rose-50",
+      "danger_text": "text-rose-700",
+      "danger_border": "border-rose-200",
+      "info_bg": "bg-blue-50",
+      "info_text": "text-blue-700"
+    }
+  },
+  "layout_spacing": {
+    "container": "max-w-5xl mx-auto px-4 sm:px-6 lg:px-8",
+    "wizard_wrapper": "max-w-3xl mx-auto pt-8 pb-24",
+    "card_padding": "p-6 sm:p-8",
+    "gap_standard": "gap-6",
+    "gap_dense": "gap-3",
+    "radius": {
+      "outer": "rounded-2xl",
+      "inner": "rounded-xl",
+      "button": "rounded-lg"
+    },
+    "shadows": {
+      "subtle": "shadow-sm shadow-stone-200/50",
+      "floating": "shadow-lg shadow-stone-200/40"
+    }
+  },
+  "components": {
+    "wizard_header": {
+      "description": "Sticky top bar showing numbered progress. Must use solid background (bg-white) with border-b to avoid text overlap.",
+      "classes": "sticky top-0 z-50 bg-white border-b border-stone-200 px-4 py-4 flex items-center justify-between"
+    },
+    "document_capture": {
+      "description": "Camera overlay container with 3-snap logic.",
+      "classes": "relative w-full aspect-[3/4] sm:aspect-video bg-stone-900 rounded-2xl overflow-hidden border-2 border-dashed border-stone-700 flex items-center justify-center",
+      "bounding_box": "absolute inset-8 border-2 border-emerald-500 rounded-xl pointer-events-none"
+    },
+    "dictation_panel": {
+      "description": "Live voice-to-text script area.",
+      "classes": "bg-white border border-stone-200 rounded-2xl p-6 shadow-sm",
+      "script_slot": "inline-block px-2 py-0.5 mx-1 bg-amber-50 border border-amber-200 text-amber-800 rounded font-mono text-sm empty:bg-stone-100 empty:border-dashed empty:border-stone-300 transition-colors"
+    },
+    "clinical_dashboard": {
+      "description": "High-density data grid for Step 3. Uses Mode B 'Control Room' Grid.",
+      "grid_container": "grid grid-cols-1 md:grid-cols-4 gap-4",
+      "data_card": "col-span-1 bg-white border border-stone-200 rounded-xl p-4 flex flex-col gap-2",
+      "matrix_table": "w-full text-left text-sm border-collapse",
+      "confidence_score": "text-3xl font-semibold tracking-tight",
+      "action_button": "w-full py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 text-sm font-medium rounded-lg transition-colors"
+    },
+    "result_panels": {
+      "description": "4-panel AI reasoning view.",
+      "classes": "grid grid-cols-1 lg:grid-cols-2 gap-6",
+      "panel": "bg-white border border-stone-200 rounded-2xl p-6 shadow-sm flex flex-col h-full"
+    },
+    "trust_badge": {
+      "description": "HIPAA/Privacy messaging used throughout the app.",
+      "classes": "inline-flex items-center gap-2 px-3 py-1.5 bg-emerald-50 text-emerald-700 text-xs font-semibold uppercase tracking-widest rounded-full border border-emerald-100"
+    }
+  },
+  "motion_interactions": {
+    "hover_state": "transition-all duration-200 ease-out",
+    "button_active": "active:scale-[0.98]",
+    "page_transition": "animate-in fade-in slide-in-from-bottom-4 duration-500"
+  },
+  "accessibility": {
+    "contrast_requirements": "All text must pass WCAG AA against stone-50 or white backgrounds.",
+    "data_testid": "MANDATORY on all buttons, inputs, links, and wizard progression steps (e.g., data-testid='wizard-next-step')."
+  },
+  "icons": "lucide-react",
+  "media_urls": {
+    "auth_background": {
+      "url": "https://images.unsplash.com/photo-1631248055158-edec7a3c072b?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzNTl8MHwxfHNlYXJjaHwxfHxtZWRpY2FsJTIwY2xpbmljJTIwaW50ZXJpb3IlMjBjYWxtfGVufDB8fHx8MTc4MzExNDk0OXww&ixlib=rb-4.1.0&q=85",
+      "description": "Calm, clean medical clinic interior for the login/auth split-screen background."
+    },
+    "doctor_profile_placeholder": {
+      "url": "https://images.unsplash.com/photo-1612349317150-e413f6a5b16d?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1ODF8MHwxfHNlYXJjaHwxfHxtZWRpY2FsJTIwY2xpbmljJTIwaW50ZXJpb3IlMjBjYWxtfGVufDB8fHx8MTc4MzExNDk0OXww&ixlib=rb-4.1.0&q=85",
+      "description": "Modern doctor portrait for profile avatar placeholder if needed."
+    }
+  },
+  "instructions_to_main_agent": [
+    "Install 'lucide-react' for icons.",
+    "Add 'Outfit' and 'IBM Plex Sans' from Google Fonts.",
+    "Use Tailwind exclusively for styling. Rely heavily on the stone-* and emerald-* palette.",
+    "Ensure the wizard feels fast and lightweight. Do not use heavy glassmorphism for clinical data.",
+    "Implement the 'trust_badge' prominently on the Auth screen and at the bottom of the Wizard.",
+    "For the Clinical Dashboard (Step 3), use high-density padding (p-3 or p-4) to fit all elements without scrolling unnecessarily."
+  ]
+}
