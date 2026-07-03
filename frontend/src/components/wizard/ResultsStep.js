@@ -56,7 +56,7 @@ export default function ResultsStep({ state, onExit }) {
         </div>
         <div className="flex gap-2">
           <Button data-testid="export-print-btn" variant="outline" onClick={() => window.print()} className="h-11 rounded-xl border-stone-300"><Printer className="w-4 h-4 mr-2" /> Print / PDF</Button>
-          <Button data-testid="export-json-btn" onClick={downloadJson} className="h-11 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white"><Download className="w-4 h-4 mr-2" /> Export</Button>
+          <Button data-testid="export-json-btn" onClick={downloadJson} className="h-11 rounded-md bg-emerald-900 hover:bg-emerald-800 text-white border border-emerald-950"><Download className="w-4 h-4 mr-2" /> Export</Button>
         </div>
       </div>
 

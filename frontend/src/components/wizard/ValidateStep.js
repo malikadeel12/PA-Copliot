@@ -192,7 +192,7 @@ export default function ValidateStep({ state, patch, onBack, onNext, refreshUser
       <div className="mt-8 flex items-center justify-between">
         <Button data-testid="validate-back-btn" variant="ghost" onClick={onBack} className="text-stone-500"><ArrowLeft className="w-4 h-4 mr-1.5" /> Back</Button>
         <Button data-testid="validate-analyze-btn" onClick={runAnalysis} disabled={generating}
-          className="h-12 px-6 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-xl active:scale-[0.98] transition-all">
+          className="h-12 px-6 bg-emerald-900 hover:bg-emerald-800 text-white font-semibold rounded-md border border-emerald-950 transition-colors">
           {generating ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Analyzing… (~15s)</> : <><Sparkles className="w-4 h-4 mr-2" /> Run AI analysis (1 credit)</>}
         </Button>
       </div>

@@ -65,7 +65,7 @@ export default function BuyCredits() {
                 <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-600" /> Zero data retention</li>
               </ul>
               <Button data-testid={`buy-pack-${p.id}`} onClick={() => buy(p.id)} disabled={busy === p.id}
-                className={`mt-6 h-11 font-semibold rounded-xl active:scale-[0.98] transition-all ${p.highlight ? "bg-emerald-600 hover:bg-emerald-700 text-white" : "bg-stone-900 hover:bg-stone-800 text-white"}`}>
+                className={`mt-6 h-11 font-semibold rounded-md border transition-colors ${p.highlight ? "bg-emerald-900 hover:bg-emerald-800 text-white border-emerald-950" : "bg-white hover:bg-stone-50 text-stone-900 border-stone-300"}`}>
                 {busy === p.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Zap className="w-4 h-4 mr-1.5" /> Get {p.credits} credits</>}
               </Button>
             </div>

@@ -90,7 +90,11 @@ export default function CaptureStep({ state, patch, onNext }) {
                   </>
                 ) : (
                   <>
-                    <div className="w-11 h-11 rounded-xl bg-emerald-50 flex items-center justify-center"><slot.icon className="w-5 h-5 text-emerald-600" /></div>
+                    <span className="absolute top-3 left-3 w-4 h-4 border-l-2 border-t-2 border-stone-300" />
+                    <span className="absolute top-3 right-3 w-4 h-4 border-r-2 border-t-2 border-stone-300" />
+                    <span className="absolute bottom-3 left-3 w-4 h-4 border-l-2 border-b-2 border-stone-300" />
+                    <span className="absolute bottom-3 right-3 w-4 h-4 border-r-2 border-b-2 border-stone-300" />
+                    <div className="w-11 h-11 rounded-md border border-stone-200 bg-white flex items-center justify-center"><slot.icon className="w-5 h-5 text-emerald-800" /></div>
                     <span className="mt-3 font-heading font-semibold text-stone-800 text-sm">{slot.title}</span>
                     <span className="mt-1 text-[11px] text-stone-400 leading-snug">{slot.hint}</span>
                     <span className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700"><Upload className="w-3.5 h-3.5" /> Upload / snap</span>
@@ -106,7 +110,7 @@ export default function CaptureStep({ state, patch, onNext }) {
         <div className="mt-8 flex items-center justify-between gap-4 flex-wrap">
           <span className="text-sm text-stone-500">{captured} of 3 documents added</span>
           <Button data-testid="capture-analyze-btn" onClick={analyze} disabled={busy || captured === 0}
-            className="h-12 px-6 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-xl active:scale-[0.98] transition-all">
+            className="h-12 px-6 bg-emerald-900 hover:bg-emerald-800 text-white font-semibold rounded-md border border-emerald-950 transition-colors">
             {busy ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Reading documents…</> : <><ScanLine className="w-4 h-4 mr-2" /> Extract data</>}
           </Button>
         </div>
@@ -116,7 +120,7 @@ export default function CaptureStep({ state, patch, onNext }) {
           <ExtractedGrid data={extractedPreview} />
           <div className="mt-6 flex justify-end gap-3">
             <Button data-testid="capture-reextract-btn" variant="outline" onClick={() => patch({ extractedData: null, requestId: null })} className="h-11 rounded-xl border-stone-300">Re-scan</Button>
-            <Button data-testid="capture-next-btn" onClick={onNext} className="h-11 px-6 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-xl active:scale-[0.98] transition-all">
+            <Button data-testid="capture-next-btn" onClick={onNext} className="h-11 px-6 bg-emerald-900 hover:bg-emerald-800 text-white font-semibold rounded-md border border-emerald-950 transition-colors">
               Continue to dictation <ArrowRight className="w-4 h-4 ml-2" />
             </Button>
           </div>

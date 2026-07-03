@@ -9,7 +9,7 @@ import { TrustBadge } from "@/components/TrustBadge";
 import { toast } from "sonner";
 import { Activity, ShieldCheck, Clock, FileCheck2, Loader2 } from "lucide-react";
 
-const AUTH_BG = "https://images.unsplash.com/photo-1631248055158-edec7a3c072b?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzNTl8MHwxfHNlYXJjaHwxfHxtZWRpY2FsJTIwY2xpbmljJTIwaW50ZXJpb3IlMjBjYWxtfGVufDB8fHx8MTc4MzExNDk0OXww&ixlib=rb-4.1.0&q=85";
+const AUTH_BG = "https://images.unsplash.com/photo-1782397132123-0166b524d6bc?crop=entropy&cs=srgb&fm=jpg&q=85&w=1400";
 
 export default function Login() {
   const { user, setUser } = useAuth();
@@ -50,7 +50,8 @@ export default function Login() {
       {/* Left — brand / trust */}
       <div className="relative hidden lg:flex flex-col justify-between p-12 overflow-hidden">
         <img src={AUTH_BG} alt="Calm clinic interior" className="absolute inset-0 w-full h-full object-cover" />
-        <div className="absolute inset-0 bg-gradient-to-br from-stone-900/80 via-stone-900/60 to-emerald-900/70" />
+        <div className="absolute inset-0 bg-gradient-to-tr from-emerald-950/90 via-stone-900/75 to-stone-900/70" />
+        <div className="absolute inset-0 pa-grid-bg opacity-[0.06]" />
         <div className="relative z-10 flex items-center gap-3">
           <div className="w-11 h-11 rounded-xl bg-white/95 flex items-center justify-center">
             <Activity className="w-6 h-6 text-emerald-600" strokeWidth={2.4} />
@@ -136,7 +137,7 @@ export default function Login() {
                 placeholder="••••••••" className="mt-1.5 h-11" />
             </div>
             <Button data-testid="auth-submit-btn" type="submit" disabled={busy}
-              className="w-full h-11 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-lg active:scale-[0.98] transition-all">
+              className="w-full h-11 bg-emerald-900 hover:bg-emerald-800 text-white font-semibold rounded-md border border-emerald-950 transition-colors">
               {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : (mode === "login" ? "Sign In" : "Create Account")}
             </Button>
           </form>

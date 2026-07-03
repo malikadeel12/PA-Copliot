@@ -74,7 +74,7 @@ export default function Profile() {
           </div>
 
           <Button data-testid="profile-save-btn" onClick={save} disabled={busy}
-            className="h-11 px-6 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-lg active:scale-[0.98] transition-all">
+            className="h-11 px-6 bg-emerald-900 hover:bg-emerald-800 text-white font-semibold rounded-md border border-emerald-950 transition-colors">
             {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Stethoscope className="w-4 h-4 mr-2" /> Save profile</>}
           </Button>
         </div>

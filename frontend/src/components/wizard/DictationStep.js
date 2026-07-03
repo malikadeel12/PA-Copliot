@@ -90,7 +90,7 @@ export default function DictationStep({ state, patch, onBack, onNext }) {
           <span className="text-xs font-semibold uppercase tracking-wider text-stone-500">Your narrative</span>
           <button data-testid="dictation-mic-btn" onClick={toggle}
             className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-semibold transition-all
-              ${listening ? "bg-rose-50 text-rose-700 border border-rose-200" : "bg-emerald-600 text-white hover:bg-emerald-700"}`}>
+              ${listening ? "bg-rose-50 text-rose-700 border border-rose-200" : "bg-emerald-900 text-white hover:bg-emerald-800 border border-emerald-950"}`}>
             {listening ? <><MicOff className="w-4 h-4" /> Stop</> : <><Mic className="w-4 h-4" /> Dictate</>}
             {listening && <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse-ring" />}
           </button>
@@ -109,7 +109,7 @@ export default function DictationStep({ state, patch, onBack, onNext }) {
       <div className="mt-8 flex items-center justify-between">
         <Button data-testid="dictation-back-btn" variant="ghost" onClick={onBack} className="text-stone-500"><ArrowLeft className="w-4 h-4 mr-1.5" /> Back</Button>
         <Button data-testid="dictation-next-btn" onClick={next} disabled={busy}
-          className="h-12 px-6 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-xl active:scale-[0.98] transition-all">
+          className="h-12 px-6 bg-emerald-900 hover:bg-emerald-800 text-white font-semibold rounded-md border border-emerald-950 transition-colors">
           {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <>Continue to validate <ArrowRight className="w-4 h-4 ml-2" /></>}
         </Button>
       </div>
