@@ -96,6 +96,9 @@ function AppRouter() {
 }
 
 export default function App() {
+  useEffect(() => {
+    document.title = "PA Copilot — Prior Authorization";
+  }, []);
   return (
     <div className="App">
       <BrowserRouter>
