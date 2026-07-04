@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
-import api, { formatApiError } from "@/lib/api";
+import { formatApiError } from "@/lib/api";
+import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,7 +13,7 @@ import { Activity, ShieldCheck, Clock, FileCheck2, Loader2 } from "lucide-react"
 const AUTH_BG = "/login-hero.png";
 
 export default function Login() {
-  const { user, setUser } = useAuth();
+  const { user, refreshUser } = useAuth();
   const navigate = useNavigate();
   const [mode, setMode] = useState("login");
   const [form, setForm] = useState({ name: "", email: "", password: "" });
@@ -24,25 +25,41 @@ export default function Login() {
     e.preventDefault();
     setBusy(true);
     try {
-      const endpoint = mode === "login" ? "/auth/login" : "/auth/register";
-      const payload = mode === "login"
-        ? { email: form.email, password: form.password }
-        : { name: form.name, email: form.email, password: form.password };
-      const { data } = await api.post(endpoint, payload);
-      setUser(data.user);
-      toast.success(mode === "login" ? "Welcome back" : "Account created — 5 free credits added");
-      navigate(data.user?.role === "admin" ? "/admin" : "/dashboard", { replace: true });
+      if (mode === "login") {
+        const { error } = await supabase.auth.signInWithPassword({ email: form.email, password: form.password });
+        if (error) throw error;
+        const profile = await refreshUser();
+        toast.success("Welcome back");
+        navigate(profile?.role === "admin" ? "/admin" : "/dashboard", { replace: true });
+      } else {
+        const { data, error } = await supabase.auth.signUp({
+          email: form.email,
+          password: form.password,
+          options: { data: { full_name: form.name } },
+        });
+        if (error) throw error;
+        if (data.session) {
+          const profile = await refreshUser();
+          toast.success("Account created — 5 free credits added");
+          navigate(profile?.role === "admin" ? "/admin" : "/dashboard", { replace: true });
+        } else {
+          toast.success("Account created. Please check your email to confirm, then sign in.");
+          setMode("login");
+        }
+      }
     } catch (err) {
-      toast.error(formatApiError(err.response?.data?.detail) || err.message);
+      toast.error(err?.message || formatApiError(err?.response?.data?.detail));
     } finally {
       setBusy(false);
     }
   };
 
-  const googleLogin = () => {
-    // REMINDER: DO NOT HARDCODE THE URL, OR ADD ANY FALLBACKS OR REDIRECT URLS, THIS BREAKS THE AUTH
-    const redirectUrl = window.location.origin + "/dashboard";
-    window.location.href = `https://auth.emergentagent.com/?redirect=${encodeURIComponent(redirectUrl)}`;
+  const googleLogin = async () => {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: window.location.origin + "/dashboard" },
+    });
+    if (error) toast.error(error.message);
   };
 
   return (

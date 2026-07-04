@@ -1,10 +1,16 @@
 import axios from "axios";
+import { supabase } from "@/lib/supabase";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 
-const api = axios.create({
-  baseURL: `${BACKEND_URL}/api`,
-  withCredentials: true,
+const api = axios.create({ baseURL: `${BACKEND_URL}/api` });
+
+// Attach the Supabase access token (JWT) to every request.
+api.interceptors.request.use(async (config) => {
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
 });
 
 export function formatApiError(detail) {
