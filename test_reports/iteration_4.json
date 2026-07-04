@@ -1,0 +1,50 @@
+{
+  "summary": "Full Supabase-migration test pass. Backend (Node/Express + Supabase) is solid: 15/15 pytest cases green covering auth, role separation, admin console, credits, profile persistence and 401/403 protections. Frontend flows work via SPA navigation (admin login->/admin console renders stats + accounts table + grant-credits dialog; physician login->/dashboard shows credit chip; Buy Credits pack purchase increments credits; Profile save works; sidebar Sign out returns to /login; physician has no Admin sidebar item). CRITICAL BUG discovered: hard-reload / deep-link entry to any protected route (/profile, /buy-credits, /admin) leaves the app stuck on the top-level Spinner indefinitely and fires zero API requests, because the axios interceptor's `await supabase.auth.getSession()` deadlocks against the GoTrue lock while `onAuthStateChange -> loadProfile()` is in-flight (known @supabase/supabase-js 2.45.4 issue). Also, physician navigating to /admin never gets redirected to /dashboard for the same reason (spinner never resolves so AdminRoute cannot run its role check).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "AuthContext + api.js interceptor",
+        "issue": "Hard-reload / direct URL entry to /profile, /buy-credits or /admin gets stuck on <Spinner/> forever. No /auth/me, /admin/overview, /admin/users, or /profile requests are ever sent. Root cause: axios request interceptor calls `await supabase.auth.getSession()` while AuthProvider's onAuthStateChange handler is simultaneously awaiting `loadProfile()` (which triggers the same interceptor). @supabase/supabase-js 2.45.4 uses an internal GoTrue lock and deadlocks this re-entry.",
+        "selector": "[data-testid=\"profile-save-btn\"], [data-testid=\"buy-pack-starter\"], [data-testid=\"admin-stat-total_users\"] (all missing after hard reload)",
+        "priority": "HIGH"
+      },
+      {
+        "component": "AdminRoute (physician -> /admin redirect)",
+        "issue": "Requirement: physician hitting /admin should be redirected to /dashboard. Observed: physician typing /admin (or being deep-linked) never reaches the guard because the app is stuck on Spinner (same deadlock as above). URL remains /admin. The sidebar correctly hides 'Admin' for physician role.",
+        "selector": "N/A",
+        "priority": "HIGH"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Admin grant-credits Dialog", "issues": ["Radix DialogContent missing Description / aria-describedby (a11y warning in console)"]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_supabase_migration.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Fix Supabase auth deadlock on hard reload. Recommended: in /app/frontend/src/lib/api.js stop calling `await supabase.auth.getSession()` in the interceptor. Instead cache the access token in a module-level variable that is updated once from `supabase.auth.onAuthStateChange((_e, s) => { currentToken = s?.access_token })` (also seed it from getSession on module import). Alternatively bump @supabase/supabase-js to >=2.62 which removed the re-entrant GoTrue lock. Either fix will unblock /profile, /buy-credits, and the physician->/admin redirect on hard reload.",
+    "(Nice-to-have) Add a `<DialogDescription>` (or aria-describedby) to the admin grant-credits Dialog to silence the Radix a11y warning."
+  ],
+  "critical_code_review_comments": [
+    "AuthContext.loadProfile is invoked from both getSession().then and onAuthStateChange - fine, but combined with the async supabase-getSession call inside the axios interceptor it causes the deadlock described above; the interceptor should not await Supabase on every request.",
+    "Backend `/api/profile` only exposes PUT (no GET). The profile is only readable through /auth/me. Consider adding GET /api/profile for symmetry / clarity (frontend currently uses /auth/me which works).",
+    "Backend `/api/admin/users` returns `{users:[...]}` while `/api/admin/overview` returns flat object. Response shapes are consistent internally but not documented; ok."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_supabase_migration.py (new)"
+  ],
+  "success_rate": {"backend": "100% (15/15)", "frontend": "~70% - all flows work via SPA nav; hard reload broken for protected routes"},
+  "test_credentials": "Admin dr.admin@pacopilot.health / PaCopilot2026! ; Physician physician@pacopilot-tests.com / Test1234!",
+  "seed_data_creation": "None. Tests reuse existing accounts. Physician credits were incremented via mock-purchase (+10) and admin grant (+3) and buy-credits UI (+2). Nothing else persisted.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend pytest suite at /app/backend/tests/test_supabase_migration.py covers auth/me for both roles, role-separation 403s, admin overview + users, admin grant-credits, mock-purchase, profile PUT+persistence, public /reference, 401 on missing/invalid token. All 15 currently pass. When re-testing frontend, use the sidebar (SPA nav) to reach /profile and /buy-credits; hard-reloading those URLs directly is the current bug. To reproduce the deadlock: login as physician -> `page.goto('/profile')` -> observe endless spinner and zero network requests despite `sb-<project>-auth-token` in localStorage.",
+  "rca of the issue": "Deadlock in Supabase JS 2.45.4 GoTrue lock. AuthProvider mounts, calls supabase.auth.getSession() (acquires lock), then awaits loadProfile() which calls api.get('/auth/me'). The axios request interceptor at /app/frontend/src/lib/api.js:9-14 does `await supabase.auth.getSession()` again -- this second call tries to acquire the same lock and hangs forever. onAuthStateChange (INITIAL_SESSION) reinforces the same pattern. Because setLoading(false) sits after the awaited loadProfile, the AuthProvider `loading` stays true and every ProtectedRoute/AdminRoute just renders <Spinner/>. Mitigation: don't re-enter supabase.auth.getSession() inside a call chain that started from a getSession/onAuthStateChange callback -- cache the token in module state or upgrade supabase-js. Full SPA session (login -> React state hydrated) works because the initial getSession/interceptor calls occur before any onAuthStateChange fires reentrantly."
+}
