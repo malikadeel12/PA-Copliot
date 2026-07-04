@@ -1,0 +1,23 @@
+{
+  "summary": "Regression retest of the hard-reload/deep-link deadlock fix in /app/frontend/src/lib/api.js. ALL PRIMARY REGRESSION SCENARIOS PASS. Hard-reloading /admin, /profile, and /buy-credits as admin now renders the page content and fires the expected API calls (/auth/me, /admin/overview, /admin/users). Physician hard-reloading /admin is now correctly redirected to /dashboard (guard runs since spinner resolves). Physician sidebar still has no Admin item. Logout clears session and hard-reloading /dashboard after logout redirects to /login. Admin login lands on /admin; physician login lands on /dashboard. Frontend-only regression testing per request; backend suite from iteration_4 (15/15) not re-run.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_supabase_migration.py"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "api.js fix is minimal and correct: onAuthStateChange caches the token and tokenFromStorage() gives a synchronous fallback on hard reload. No more re-entrant supabase.auth.getSession() inside the interceptor.",
+    "Note: tokenFromStorage() iterates window.localStorage keys on every request when accessToken cache is empty; fine here but a tiny perf/wart. Consider seeding accessToken once at module load from the same lookup to avoid the loop on early requests."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "not re-tested (iteration_4: 15/15)", "frontend": "100% for regression scope"},
+  "test_credentials": "Admin dr.admin@pacopilot.health / PaCopilot2026! ; Physician physician@pacopilot-tests.com / Test1234!",
+  "seed_data_creation": "None.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Hard-reload deadlock is fixed. Verified via full page.goto() to /admin, /profile, /buy-credits after login for both admin and physician - all render, expected data-testids appear, /auth/me and admin endpoints fire. Physician->/admin redirects to /dashboard. Logout+hard-reload /dashboard redirects to /login. Physician sidebar has no Admin link. Only warning still visible: cdn-cgi/rum tracker abort (harmless).",
+  "rca of the issue": "Previous iteration_4 bug (Supabase GoTrue lock deadlock caused by await supabase.auth.getSession() inside axios interceptor while AuthProvider.onAuthStateChange was awaiting loadProfile) has been resolved. New interceptor uses cached access_token from onAuthStateChange callback + synchronous localStorage fallback (sb-*-auth-token) so no re-entrant Supabase call occurs during request handling."
+}

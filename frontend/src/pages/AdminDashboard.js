@@ -4,7 +4,7 @@ import AppShell from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import {
   Users, Stethoscope, ShieldAlert, Activity, ShoppingBag, Wallet,
@@ -156,6 +156,7 @@ export default function AdminDashboard() {
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="font-heading">Grant credits</DialogTitle>
+            <DialogDescription>Add credits to this user's balance. This is logged in the credit ledger.</DialogDescription>
           </DialogHeader>
           <p className="text-sm text-stone-500">
             Add credits to <span className="font-medium text-stone-800">{grantUser?.email}</span> (current balance:{" "}
