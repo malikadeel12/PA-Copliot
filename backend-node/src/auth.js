@@ -1,126 +1,83 @@
-const jwt = require("jsonwebtoken");
-const bcrypt = require("bcryptjs");
-const { getDb } = require("./db");
+const { authClient, adminClient } = require("./supabase");
 
-const JWT_ALGORITHM = "HS256";
 const SIGNUP_FREE_CREDITS = 5;
+const ADMIN_CREDITS = 100;
 
-function hashPassword(password) {
-  return bcrypt.hashSync(password, bcrypt.genSaltSync(10));
+function isAdminEmail(email) {
+  const admin = (process.env.ADMIN_EMAIL || "").toLowerCase();
+  return admin && (email || "").toLowerCase() === admin;
 }
 
-function verifyPassword(plain, hashed) {
-  try {
-    return bcrypt.compareSync(plain, hashed);
-  } catch {
-    return false;
+// Ensures a `profiles` row exists for the authenticated Supabase user.
+// First login grants free credits; the configured ADMIN_EMAIL is promoted to admin.
+async function ensureProfile(user) {
+  const { data: existing } = await adminClient
+    .from("profiles").select("*").eq("id", user.id).maybeSingle();
+
+  if (existing) {
+    if (isAdminEmail(user.email) && existing.role !== "admin") {
+      const { data: up } = await adminClient
+        .from("profiles").update({ role: "admin" }).eq("id", user.id).select("*").single();
+      return up || existing;
+    }
+    return existing;
   }
-}
 
-function createAccessToken(userId, email) {
-  return jwt.sign(
-    { sub: userId, email, type: "access" },
-    process.env.JWT_SECRET,
-    { algorithm: JWT_ALGORITHM, expiresIn: "7d" }
-  );
-}
-
-function decodeAccessToken(token) {
-  try {
-    const payload = jwt.verify(token, process.env.JWT_SECRET, { algorithms: [JWT_ALGORITHM] });
-    if (payload.type !== "access") return null;
-    return payload;
-  } catch {
-    return null;
-  }
-}
-
-function publicUser(doc) {
-  return {
-    user_id: doc.user_id,
-    email: doc.email,
-    name: doc.name ?? null,
-    npi: doc.npi ?? null,
-    specialty: doc.specialty ?? null,
-    facility_name: doc.facility_name ?? null,
-    facility_address: doc.facility_address ?? null,
-    signature_data_url: doc.signature_data_url ?? null,
-    credits: doc.credits ?? 0,
-    auth_provider: doc.auth_provider ?? "password",
-    role: doc.role ?? "physician",
+  const admin = isAdminEmail(user.email);
+  const meta = user.user_metadata || {};
+  const insert = {
+    id: user.id,
+    email: user.email,
+    name: meta.full_name || meta.name || null,
+    signature_data_url: meta.avatar_url || null,
+    role: admin ? "admin" : "physician",
+    credits: admin ? ADMIN_CREDITS : SIGNUP_FREE_CREDITS,
+    auth_provider: (user.app_metadata && user.app_metadata.provider) || "email",
   };
+  const { data: created, error } = await adminClient
+    .from("profiles").insert(insert).select("*").single();
+  if (error) throw error;
+  await adminClient.from("credit_transactions")
+    .insert({ user_id: user.id, type: "signup_grant", amount: insert.credits });
+  return created;
 }
 
-function cookieOptions(maxAgeMs) {
-  return {
-    httpOnly: true,
-    secure: process.env.COOKIE_SECURE !== "false",
-    sameSite: "none",
-    maxAge: maxAgeMs,
-    path: "/",
-  };
-}
-
-function setJwtCookie(res, token) {
-  res.cookie("access_token", token, cookieOptions(7 * 24 * 60 * 60 * 1000));
-}
-
-function bearerFrom(req) {
-  const h = req.headers.authorization || "";
-  return h.startsWith("Bearer ") ? h.slice(7) : null;
-}
-
-// Accepts JWT access_token OR Emergent session_token (cookie or Bearer).
 async function requireAuth(req, res, next) {
-  const db = getDb();
-  const bearer = bearerFrom(req);
+  const h = req.headers.authorization || "";
+  const token = h.startsWith("Bearer ") ? h.slice(7) : null;
+  if (!token) return res.status(401).json({ detail: "Not authenticated" });
 
-  const jwtToken = req.cookies?.access_token || bearer;
-  if (jwtToken) {
-    const payload = decodeAccessToken(jwtToken);
-    if (payload) {
-      const doc = await db.collection("users").findOne({ user_id: payload.sub }, { projection: { _id: 0 } });
-      if (doc) {
-        req.user = doc;
-        return next();
-      }
-    }
-  }
+  const { data, error } = await authClient.auth.getUser(token);
+  if (error || !data?.user) return res.status(401).json({ detail: "Invalid or expired token" });
 
-  const sessionToken = req.cookies?.session_token || bearer;
-  if (sessionToken) {
-    const sess = await db.collection("user_sessions").findOne({ session_token: sessionToken }, { projection: { _id: 0 } });
-    if (sess) {
-      const exp = new Date(sess.expires_at);
-      if (exp >= new Date()) {
-        const doc = await db.collection("users").findOne({ user_id: sess.user_id }, { projection: { _id: 0 } });
-        if (doc) {
-          req.user = doc;
-          return next();
-        }
-      }
-    }
-  }
-
-  return res.status(401).json({ detail: "Not authenticated" });
-}
-
-function requireAdmin(req, res, next) {
-  if (req.user?.role !== "admin") {
-    return res.status(403).json({ detail: "Admin access required" });
+  try {
+    req.user = await ensureProfile(data.user);
+  } catch (e) {
+    console.error("ensureProfile failed:", e.message);
+    return res.status(500).json({ detail: "Profile lookup failed" });
   }
   return next();
 }
 
-module.exports = {
-  SIGNUP_FREE_CREDITS,
-  hashPassword,
-  verifyPassword,
-  createAccessToken,
-  decodeAccessToken,
-  publicUser,
-  setJwtCookie,
-  cookieOptions,
-  requireAuth,
-  requireAdmin,
-};
+function requireAdmin(req, res, next) {
+  if (req.user?.role !== "admin") return res.status(403).json({ detail: "Admin access required" });
+  return next();
+}
+
+function publicUser(p) {
+  return {
+    user_id: p.id,
+    email: p.email,
+    name: p.name ?? null,
+    npi: p.npi ?? null,
+    specialty: p.specialty ?? null,
+    facility_name: p.facility_name ?? null,
+    facility_address: p.facility_address ?? null,
+    signature_data_url: p.signature_data_url ?? null,
+    credits: p.credits ?? 0,
+    role: p.role ?? "physician",
+    auth_provider: p.auth_provider ?? "supabase",
+  };
+}
+
+module.exports = { SIGNUP_FREE_CREDITS, requireAuth, requireAdmin, publicUser };
