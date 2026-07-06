@@ -21,6 +21,17 @@ export default function Login() {
 
   useEffect(() => { if (user) navigate(user.role === "admin" ? "/admin" : "/dashboard", { replace: true }); }, [user, navigate]);
 
+  // Surface OAuth errors returned on the redirect (e.g. misconfigured Google client).
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const h = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    const err = q.get("error_description") || q.get("error") || h.get("error_description") || h.get("error");
+    if (err) {
+      toast.error(decodeURIComponent(err).replace(/\+/g, " "));
+      window.history.replaceState(null, "", window.location.pathname);
+    }
+  }, []);
+
   const submit = async (e) => {
     e.preventDefault();
     setBusy(true);
@@ -57,7 +68,7 @@ export default function Login() {
   const googleLogin = async () => {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo: window.location.origin + "/dashboard" },
+      options: { redirectTo: window.location.origin + "/login" },
     });
     if (error) toast.error(error.message);
   };

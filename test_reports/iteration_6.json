@@ -1,0 +1,28 @@
+{
+  "summary": "Frontend regression + Google OAuth surfacing tests for Login.js. Email/password admin & physician logins land on correct routes; hard-reload of /dashboard and /profile renders content; sidebar Sign out returns to /login; Google button correctly initiates supabase.signInWithOAuth (redirect chain: /auth/v1/authorize -> accounts.google.com) without any JS exception. Google's error page confirms the user-reported RCA: the client_id in the outgoing Google URL ends with '.apps.googleusercontent.co' (truncated, missing trailing 'm') — Supabase dashboard config issue, NOT app code. However, the NEW URL-error toast on /login?error=...&error_description=... does NOT visually appear even though the URL is cleaned (history.replaceState fires). Sonner Toaster is mounted and works for other events (verified via bad-password login -> 'Invalid login credentials' toast renders).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Login.js useEffect (error/error_description surfacing)", "issue": "toast.error(...) does not render when the page loads with ?error=access_denied&error_description=Test+google+error. URL cleanup DOES execute (query is removed from address bar) but no toast is visible in the DOM (<section aria-label='Notifications'> stays empty). Sonner Toaster itself works — a bad-password login on the same page correctly shows the 'Invalid login credentials' toast. Likely cause: React.StrictMode (enabled in /app/frontend/src/index.js) double-invokes the effect. First pass fires toast + replaceState, but the effect cleanup / remount cycle plus the fact that Login mounts as a Route child while Toaster mounts as a sibling causes the queued toast to be dropped before Sonner subscribes. Second pass sees a clean URL and no-ops.", "selector": "[data-testid=google-login-btn] page load with ?error= params", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/test_reports/iteration_6.json"],
+  "action_items": [
+    "Fix OAuth-error toast surfacing in /app/frontend/src/pages/Login.js. Recommended: defer the toast to next tick so Sonner Toaster is definitely subscribed, e.g. `setTimeout(() => toast.error(msg), 0);` — OR add a module-level ref/flag to guarantee it fires exactly once and after mount. Verify with: navigate to /login?error=access_denied&error_description=Test+google+error and confirm a red toast appears and URL is cleaned.",
+    "(User task, NOT app code) Re-paste the full Google OAuth Client ID in Supabase → Auth → Providers → Google. The current outgoing authorize URL sends client_id ending '.apps.googleusercontent.co' (missing trailing 'm'), which is exactly why Google returns 'The OAuth client was not found. Error 401: invalid_client'."
+  ],
+  "critical_code_review_comments": [
+    "Login.js useEffect for URL error parsing is fragile in StrictMode — the same 'toast then replaceState' pattern will lose the toast whenever the effect double-invokes. Prefer scheduling the toast via a microtask/setTimeout and/or moving the URL parsing to a top-level module read that stays in memory across effect re-runs.",
+    "Login.js redirects OAuth back to `${origin}/login` — good; the new useEffect is the right place to surface Supabase-returned errors (once the display bug above is fixed)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (not tested per request)", "frontend": "80% (4/5 features pass; OAuth error toast surfacing fails)"},
+  "test_credentials": "Admin dr.admin@pacopilot.health / PaCopilot2026! (lands /admin, credits 100). Physician physician@pacopilot-tests.com / Test1234! (lands /dashboard, credits 5). Both confirmed working.",
+  "seed_data_creation": "None.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Only remaining failure is the OAuth-error toast on Login.js. All other regressions pass. Google button click is verified to redirect through Supabase authorize to accounts.google.com; the client_id in that URL confirms the truncated-client-id RCA (ends '.apps.googleusercontent.co'). Do NOT attempt real Google sign-in — it will and should fail at Google.",
+  "rca of the issue": "Observed on /login?error=access_denied&error_description=Test+google+error: (1) address bar cleans to /login within <1s (proving the useEffect ran and history.replaceState executed), (2) but Sonner's <section aria-label='Notifications'> stays empty (no <ol data-sonner-toaster> children). Cross-checked that Sonner is functional by triggering a bad-password submit on the same page — 'Invalid login credentials' toast renders normally. Root cause hypothesis: React.StrictMode (index.js) double-invokes the mount effect. On first invocation, toast.error is dispatched to Sonner store BEFORE the Toaster subscribes (or during its unmount cycle) and the queued item is dropped. On the second invocation, the URL is already clean so nothing fires. Mitigation: defer with setTimeout(0), or move the parse+message to a module-scope constant that survives across the double-invocation, or use a useRef guard."
+}
