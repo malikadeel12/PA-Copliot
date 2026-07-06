@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { formatApiError } from "@/lib/api";
@@ -22,12 +22,18 @@ export default function Login() {
   useEffect(() => { if (user) navigate(user.role === "admin" ? "/admin" : "/dashboard", { replace: true }); }, [user, navigate]);
 
   // Surface OAuth errors returned on the redirect (e.g. misconfigured Google client).
+  // Guard against React 18 StrictMode double-invocation clearing the URL before the toast renders.
+  const oauthErrShown = useRef(false);
   useEffect(() => {
+    if (oauthErrShown.current) return;
     const q = new URLSearchParams(window.location.search);
     const h = new URLSearchParams(window.location.hash.replace(/^#/, ""));
     const err = q.get("error_description") || q.get("error") || h.get("error_description") || h.get("error");
     if (err) {
-      toast.error(decodeURIComponent(err).replace(/\+/g, " "));
+      oauthErrShown.current = true;
+      // Defer so the Toaster (a later sibling) has subscribed to sonner's store before we publish.
+      const msg = decodeURIComponent(err).replace(/\+/g, " ");
+      setTimeout(() => toast.error(msg, { duration: 8000 }), 100);
       window.history.replaceState(null, "", window.location.pathname);
     }
   }, []);
