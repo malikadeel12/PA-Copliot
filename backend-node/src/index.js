@@ -16,7 +16,19 @@ const app = express();
 app.use(express.json({ limit: "25mb" }));
 
 const corsOrigins = (process.env.CORS_ORIGINS || "").split(",").map((s) => s.trim()).filter(Boolean);
-app.use(cors({ origin: corsOrigins.length ? corsOrigins : true, credentials: true }));
+const corsCheck = (origin, cb) => {
+  // Allow same-origin / server-to-server (no Origin header), explicit allow-list,
+  // any *.vercel.app deploy, and localhost dev.
+  if (!origin) return cb(null, true);
+  if (corsOrigins.includes(origin)) return cb(null, true);
+  try {
+    const host = new URL(origin).hostname;
+    if (host.endsWith(".vercel.app") || host === "localhost" || host === "127.0.0.1") return cb(null, true);
+  } catch (_e) { /* ignore */ }
+  return cb(null, false);
+};
+app.use(cors({ origin: corsCheck, credentials: true }));
+app.options("*", cors({ origin: corsCheck, credentials: true }));
 
 const api = express.Router();
 const uid = (p) => `${p}_${crypto.randomBytes(8).toString("hex")}`;
