@@ -42,3 +42,12 @@ Cover Letter) → export & purge. Mobile-first, "zero data retention / no PHI st
 1. Set real ANTHROPIC_API_KEY → verify full capture→generate→results flow.
 2. Finish Google provider config in Supabase; test Google login end-to-end.
 3. Deploy `backend-node` to the user's host; point frontend REACT_APP_BACKEND_URL at it.
+
+## Changelog
+- 2026-07-07: Fixed OAuth error toast on Login (deferred toast so sonner Toaster subscribes first;
+  useRef guard for StrictMode). Added **Forgot Password** flow (client-side Supabase):
+  `Login.js` "Forgot password?" view calls `resetPasswordForEmail({ redirectTo: /reset-password })`;
+  new `pages/ResetPassword.js` (route `/reset-password`) verifies the recovery session
+  (`detectSessionInUrl` + onAuthStateChange), calls `updateUser({ password })`, signs out, → /login.
+  Requires Supabase URL Config: Site URL + redirect `.../ **` allow-list. Verified via screenshot;
+  Supabase round-trip confirmed (errors surface in toast).

@@ -38,6 +38,23 @@ export default function Login() {
     }
   }, []);
 
+  const sendReset = async (e) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(form.email, {
+        redirectTo: window.location.origin + "/reset-password",
+      });
+      if (error) throw error;
+      toast.success("If an account exists for that email, a reset link is on its way.");
+      setMode("login");
+    } catch (err) {
+      toast.error(err?.message || "Could not send reset email. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const submit = async (e) => {
     e.preventDefault();
     setBusy(true);
@@ -128,12 +145,37 @@ export default function Login() {
           </div>
 
           <h2 className="font-heading text-3xl font-semibold tracking-tight text-stone-900">
-            {mode === "login" ? "Sign in" : "Create your account"}
+            {mode === "login" ? "Sign in" : mode === "register" ? "Create your account" : "Reset your password"}
           </h2>
           <p className="mt-2 text-stone-500 text-sm">
-            {mode === "login" ? "Welcome back. Let's clear that queue." : "Start with 5 free analysis credits."}
+            {mode === "login"
+              ? "Welcome back. Let's clear that queue."
+              : mode === "register"
+              ? "Start with 5 free analysis credits."
+              : "Enter your email and we'll send you a reset link."}
           </p>
 
+          {mode === "forgot" ? (
+            <>
+              <form onSubmit={sendReset} className="mt-6 space-y-4">
+                <div>
+                  <Label className="text-xs font-semibold uppercase tracking-wider text-stone-500">Email</Label>
+                  <Input data-testid="forgot-email-input" type="email" required value={form.email}
+                    onChange={(e) => setForm({ ...form, email: e.target.value })}
+                    placeholder="you@clinic.health" className="mt-1.5 h-11" />
+                </div>
+                <Button data-testid="forgot-submit-btn" type="submit" disabled={busy}
+                  className="w-full h-11 bg-emerald-900 hover:bg-emerald-800 text-white font-semibold rounded-md border border-emerald-950 transition-colors">
+                  {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : "Send reset link"}
+                </Button>
+              </form>
+              <button data-testid="back-to-login-btn" onClick={() => setMode("login")}
+                className="mt-5 text-sm font-semibold text-emerald-800 hover:text-emerald-700">
+                ← Back to sign in
+              </button>
+            </>
+          ) : (
+          <>
           <div className="mt-6 grid grid-cols-2 p-1 bg-stone-100 rounded-xl">
             {["login", "register"].map((m) => (
               <button
@@ -163,7 +205,15 @@ export default function Login() {
                 placeholder="you@clinic.health" className="mt-1.5 h-11" />
             </div>
             <div>
-              <Label className="text-xs font-semibold uppercase tracking-wider text-stone-500">Password</Label>
+              <div className="flex items-center justify-between">
+                <Label className="text-xs font-semibold uppercase tracking-wider text-stone-500">Password</Label>
+                {mode === "login" && (
+                  <button type="button" data-testid="forgot-password-link" onClick={() => setMode("forgot")}
+                    className="text-xs font-semibold text-emerald-800 hover:text-emerald-700">
+                    Forgot password?
+                  </button>
+                )}
+              </div>
               <Input data-testid="auth-password-input" type="password" required value={form.password}
                 onChange={(e) => setForm({ ...form, password: e.target.value })}
                 placeholder="••••••••" className="mt-1.5 h-11" />
@@ -185,6 +235,8 @@ export default function Login() {
             <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="" className="w-4 h-4 mr-2" />
             Continue with Google
           </Button>
+          </>
+          )}
         </div>
       </div>
     </div>
