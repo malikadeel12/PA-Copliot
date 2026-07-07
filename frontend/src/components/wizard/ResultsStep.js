@@ -20,7 +20,7 @@ const impactColor = (i) => ({
 
 export default function ResultsStep({ state, onExit }) {
   const r = state.result || {};
-  const form = r.filled_form || {};
+  const form = useMemo(() => r.filled_form || {}, [r.filled_form]);
   const analysis = r.analysis || {};
   const suggestions = (r.suggestions || []).sort((a, b) => (a.priority || 9) - (b.priority || 9));
   const letter = r.cover_letter || {};
