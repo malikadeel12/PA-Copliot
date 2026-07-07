@@ -44,6 +44,10 @@ Cover Letter) → export & purge. Mobile-first, "zero data retention / no PHI st
 3. Deploy `backend-node` to the user's host; point frontend REACT_APP_BACKEND_URL at it.
 
 ## Changelog
+- 2026-07-07 (b): Full npm switch — removed yarn.lock, added frontend package-lock.json + .npmrc
+  (legacy-peer-deps=true), supervisor frontend now `npm start`. Fixed post-login bounce-back to
+  /login: root cause was the Node backend (:8001) running as a manual bg process that died.
+  Moved it under supervisor (repurposed [program:backend] → `node src/index.js`, autorestart).
 - 2026-07-07: Fixed OAuth error toast on Login (deferred toast so sonner Toaster subscribes first;
   useRef guard for StrictMode). Added **Forgot Password** flow (client-side Supabase):
   `Login.js` "Forgot password?" view calls `resetPasswordForEmail({ redirectTo: /reset-password })`;
