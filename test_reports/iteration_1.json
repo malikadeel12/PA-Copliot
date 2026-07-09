@@ -1,0 +1,43 @@
+{
+  "summary": "Full end-to-end demo-mode UI test executed against the physician account. Login → dashboard, mock credit purchase (starter +10), 4-step PA wizard (Capture upload image → dummy 'Jane A. Doe' / Blue Shield of California / E11.9 extracted, Dictate insert-template, Validate with pre-selected E11.9 crosswalk, Run AI analysis) all worked. All 4 result panels rendered with expected dummy data (78% approval, Low denial risk, 3 suggestions, cover letter subject 'Prior Authorization' + portal 'Availity Essentials'). Credit was consumed (52 → 51) after analysis. End-session button returns to dashboard.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "Wizard · Capture step",
+        "issues": [
+          "React hydration warning in console: `<button data-testid=\"capture-remove-{slot}\">` is nested inside the parent `<button data-testid=\"capture-slot-{slot}\">` in /app/frontend/src/components/wizard/CaptureStep.js (buttons cannot be descendants of buttons). Not blocking functionality, but should be replaced with a div/span + onClick + stopPropagation, or the outer button should become a div with role='button'."
+        ]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/test_reports/.screenshots/results.png"
+  ],
+  "action_items": [
+    "OPTIONAL: Fix nested-button DOM warning in CaptureStep.js (capture-remove-* inside capture-slot-*) to remove the console hydration error.",
+    "MINOR: Playwright interactions on some buttons flagged 'element not stable' due to fade-in animations; adding a small settle delay or `animate-fade-in-up` completion class helps but not required for real users."
+  ],
+  "critical_code_review_comments": [
+    "CaptureStep.js line ~85: <button> nested in <button> — invalid HTML, causes React hydration console error. Refactor to a div/span with role='button' and onKeyDown for accessibility.",
+    "Wizard credit balance is only refreshed on onExit / after generate; user should not see stale count if navigating away mid-flow. Currently ok because refreshUser is called in ValidateStep after generate.",
+    "DictationStep depends on browser SpeechRecognition; already gracefully degrades with `supported=false` and lets user type — good."
+  ],
+  "updated_files": [],
+  "success_rate": { "backend": "N/A (frontend-only per request)", "frontend": "100% (7/7 target features verified)" },
+  "test_credentials": "physician@pacopilot-tests.com / Test1234! (WORKING).",
+  "seed_data_creation": "None. Ran 1 mock purchase (+10 credits) and 1 analysis (-1 credit) on the existing physician account.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "DEMO_MODE=true works end-to-end via UI. File input for capture-input-* is class='hidden' — use set_input_files() directly on the input selector; do NOT wait_for_selector with default visibility. Also, some buttons animate in (animate-fade-in-up) — use force=True clicks. To navigate to Buy Credits, either click [data-testid='buy-credits-btn'] on dashboard (may need force click after animation settles) or navigate directly to /buy-credits.",
+  "verified_dummy_data": {
+    "capture_extraction": ["Jane A. Doe", "Blue Shield of California", "E11.9"],
+    "results_panel_form": ["Jane A. Doe", "E11.9"],
+    "results_panel_analysis": ["78%", "Low denial risk"],
+    "results_panel_suggestions_count": 3,
+    "results_panel_letter": ["Prior Authorization", "Availity Essentials"],
+    "credit_delta": "52 → 51 after Run AI analysis"
+  }
+}
