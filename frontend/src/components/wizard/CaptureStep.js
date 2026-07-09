@@ -69,10 +69,13 @@ export default function CaptureStep({ state, patch, onNext }) {
                 type="file" accept="image/*" capture="environment" className="hidden"
                 onChange={(e) => pick(slot.key, e.target.files?.[0])}
               />
-              <button
+              <div
+                role="button"
+                tabIndex={0}
                 data-testid={`capture-slot-${slot.key}`}
                 onClick={() => inputs.current[slot.key]?.click()}
-                className={`relative w-full aspect-[3/4] rounded-lg overflow-hidden border-2 flex flex-col items-center justify-center text-center p-4 transition-all
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); inputs.current[slot.key]?.click(); } }}
+                className={`relative w-full aspect-[3/4] rounded-lg overflow-hidden border-2 flex flex-col items-center justify-center text-center p-4 transition-all cursor-pointer
                   ${img ? "border-emerald-500 bg-emerald-50/40" : "border-dashed border-stone-300 bg-white hover:border-emerald-400 hover:bg-stone-50"}`}
               >
                 {img ? (
@@ -100,7 +103,7 @@ export default function CaptureStep({ state, patch, onNext }) {
                     <span className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700"><Upload className="w-3.5 h-3.5" /> Upload / snap</span>
                   </>
                 )}
-              </button>
+              </div>
             </div>
           );
         })}
