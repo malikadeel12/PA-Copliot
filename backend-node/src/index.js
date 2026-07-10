@@ -149,7 +149,10 @@ api.post("/pa/capture", requireAuth, wrap(async (req, res) => {
     extracted = await llm.extractDocuments(images);
   } catch (e) {
     console.error("OCR failed:", e.message);
-    return res.status(502).json({ detail: "Document extraction failed. Please retry with clearer photos." });
+    const detail = /billing/i.test(e.message)
+      ? "Document OCR is not enabled yet: billing must be enabled on the Google Cloud project. Please try again once billing is active."
+      : "Document extraction failed. Please retry with clearer photos.";
+    return res.status(422).json({ detail });
   }
   const requestId = uid("req");
   paStore.put(requestId, {
@@ -216,7 +219,7 @@ api.post("/pa/:id/generate", requireAuth, wrap(async (req, res) => {
     result = await llm.runReasoning(payload);
   } catch (e) {
     console.error("Reasoning failed:", e.message);
-    return res.status(502).json({ detail: "AI analysis failed. Please try again." });
+    return res.status(422).json({ detail: "AI analysis failed. Please try again." });
   }
 
   const newCredits = (fresh.credits || 0) - 1;
