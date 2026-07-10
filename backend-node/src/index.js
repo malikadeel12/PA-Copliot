@@ -145,15 +145,11 @@ api.post("/pa/capture", requireAuth, wrap(async (req, res) => {
   const images = req.body?.images || [];
   if (!images.length) return res.status(400).json({ detail: "No document images provided" });
   let extracted;
-  if (DEMO_MODE) {
-    extracted = llm.demoExtracted();
-  } else {
-    try {
-      extracted = await llm.extractDocuments(images);
-    } catch (e) {
-      console.error("OCR failed, falling back to demo data:", e.message);
-      extracted = llm.demoExtracted();
-    }
+  try {
+    extracted = await llm.extractDocuments(images);
+  } catch (e) {
+    console.error("OCR failed:", e.message);
+    return res.status(502).json({ detail: "Document extraction failed. Please retry with clearer photos." });
   }
   const requestId = uid("req");
   paStore.put(requestId, {
@@ -216,15 +212,11 @@ api.post("/pa/:id/generate", requireAuth, wrap(async (req, res) => {
   };
 
   let result;
-  if (DEMO_MODE) {
-    result = llm.demoResult(payload);
-  } else {
-    try {
-      result = await llm.runReasoning(payload);
-    } catch (e) {
-      console.error("Reasoning failed, falling back to demo data:", e.message);
-      result = llm.demoResult(payload);
-    }
+  try {
+    result = await llm.runReasoning(payload);
+  } catch (e) {
+    console.error("Reasoning failed:", e.message);
+    return res.status(502).json({ detail: "AI analysis failed. Please try again." });
   }
 
   const newCredits = (fresh.credits || 0) - 1;

@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.1",
+    "@google-cloud/documentai": "^9.6.2",
     "@supabase/supabase-js": "2.39.8",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",

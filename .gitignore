@@ -35,3 +35,7 @@ yarn-error.log*
 # ---- Emergent platform (local only, not part of the app) ----
 .emergent/
 memory/
+
+# ---- Google Cloud service-account key (never commit) ----
+gcp-service-account.json
+**/gcp-service-account.json
