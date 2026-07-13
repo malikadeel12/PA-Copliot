@@ -13,7 +13,7 @@ import { Activity, ShieldCheck, Clock, FileCheck2, Loader2 } from "lucide-react"
 const AUTH_BG = "/login-hero.png";
 
 export default function Login() {
-  const { user, refreshUser } = useAuth();
+  const { user, loading, refreshUser } = useAuth();
   const navigate = useNavigate();
   const [mode, setMode] = useState("login");
   const [form, setForm] = useState({ name: "", email: "", password: "" });
@@ -37,6 +37,15 @@ export default function Login() {
       window.history.replaceState(null, "", window.location.pathname);
     }
   }, []);
+
+  // Avoid flashing the login form while the session is resolving or a redirect is pending.
+  if (loading || user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-stone-50" data-testid="login-loading">
+        <div className="w-10 h-10 rounded-full border-2 border-emerald-600 border-t-transparent animate-spin" />
+      </div>
+    );
+  }
 
   const sendReset = async (e) => {
     e.preventDefault();
