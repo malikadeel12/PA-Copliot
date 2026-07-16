@@ -32,6 +32,7 @@ app.use(cors({ origin: corsCheck, credentials: true }));
 app.options("*", cors({ origin: corsCheck, credentials: true }));
 
 const api = express.Router();
+api.get("/health", (_req, res) => res.json({ status: "ok", ts: Date.now() }));
 const uid = (p) => `${p}_${crypto.randomBytes(8).toString("hex")}`;
 const wrap = (fn) => (req, res) => Promise.resolve(fn(req, res)).catch((e) => {
   console.error(e);

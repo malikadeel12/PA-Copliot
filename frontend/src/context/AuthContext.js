@@ -22,19 +22,31 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     let mounted = true;
-    supabase.auth.getSession().then(async ({ data }) => {
-      if (!mounted) return;
-      setSession(data.session);
-      if (data.session) await loadProfile();
-      setLoading(false);
-    });
+    const init = async () => {
+      try {
+        const { data } = await supabase.auth.getSession();
+        if (!mounted) return;
+        setSession(data.session);
+        if (data.session) await loadProfile();
+      } catch {
+        /* ignore */
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    };
+    init();
+    // Failsafe: never trap the user on an infinite spinner if the backend is slow/unreachable.
+    const failsafe = setTimeout(() => { if (mounted) setLoading(false); }, 30000);
     const { data: sub } = supabase.auth.onAuthStateChange(async (_event, s) => {
       setSession(s);
-      if (s) await loadProfile();
-      else setUser(null);
-      setLoading(false);
+      try {
+        if (s) await loadProfile();
+        else setUser(null);
+      } finally {
+        setLoading(false);
+      }
     });
-    return () => { mounted = false; sub.subscription.unsubscribe(); };
+    return () => { mounted = false; clearTimeout(failsafe); sub.subscription.unsubscribe(); };
   }, [loadProfile]);
 
   const logout = useCallback(async () => {

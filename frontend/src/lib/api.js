@@ -3,7 +3,7 @@ import { supabase } from "@/lib/supabase";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 
-const api = axios.create({ baseURL: `${BACKEND_URL}/api` });
+const api = axios.create({ baseURL: `${BACKEND_URL}/api`, timeout: 30000 });
 
 // Cache the Supabase access token from auth state changes (avoids calling
 // supabase.auth.getSession() inside the request interceptor, which can deadlock
