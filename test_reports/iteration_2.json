@@ -1,0 +1,28 @@
+{
+  "summary": "Frontend-only test of PA wizard Capture step (Step 1). Verified: login as physician, upload showing full-fit (object-contain), controls (expand/replace/remove), preview dialog opens via slot click and expand icon, 'Enter manually' opens manual panel, validation error toast on missing required fields, manual submit creates request and shows Extracted data grid + Continue to dictation, and the auto-fallback on failed Extract Data reveals the manual-entry panel (backend returned 422 allow_manual as expected).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Capture preview dialog", "issues": ["A11y: DialogContent has no DialogTitle/Description — Radix logs a11y warnings in console. Wrap a VisuallyHidden DialogTitle inside capture-preview-dialog."]}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "(Low) Add a VisuallyHidden <DialogTitle> and aria-describedby (or Description) inside the capture preview Dialog to satisfy Radix a11y requirements."
+  ],
+  "critical_code_review_comments": [
+    "CaptureStep is well-scoped (<250 lines), uses data-testids consistently, and correctly branches on allow_manual for the fallback path.",
+    "Manual submit success path shows 'Details saved' toast but the extracted grid rendering relies on state.extractedData patch — working as intended.",
+    "Consider surfacing the specific error 'detail' from Claude/OCR in the toast (currently done via formatApiError) — worked in this run."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (skipped per request)", "frontend": "100% (6/6 scenarios)"},
+  "test_credentials": "physician@pacopilot-tests.com / Test1234! (working)",
+  "seed_data_creation": "Uploaded /tmp/test_doc.jpg generated with PIL (600x800 JPEG containing 'TEST DOCUMENT' text).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All Capture-step feature requirements verified end-to-end via Playwright. Manual entry path works entirely (no AI dependency). The failed AI Extract path returns 422 {allow_manual:true} and the UI reveals manual-entry-panel + shows toast 'You can enter the details manually below.' Do NOT rely on Anthropic key for extract — expected to fail; fallback UX is the contract. Minor Radix a11y warning in console (DialogTitle missing) — cosmetic only.",
+  "rca of the issue": "N/A — no failing test."
+}

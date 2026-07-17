@@ -29,6 +29,12 @@ function textFromResponse(resp) {
 async function extractDocuments(imagesB64) {
   if (!imagesB64 || imagesB64.length === 0) throw new Error("No images provided");
   const ocrText = await docai.ocrImages(imagesB64);
+  // Blur/unclear guard: too little readable text means the photo is unusable.
+  if (!ocrText || ocrText.replace(/[^A-Za-z0-9]/g, "").length < 25) {
+    const err = new Error("Unclear document: insufficient readable text");
+    err.code = "UNCLEAR";
+    throw err;
+  }
   const userText =
     "OCR TEXT extracted from the prior-authorization documents (patient ID, insurance card, clinical/order doc):\n\n" +
     ocrText +

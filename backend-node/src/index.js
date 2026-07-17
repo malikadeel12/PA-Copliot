@@ -144,16 +144,33 @@ api.get("/reference", wrap(async (req, res) => {
 
 api.post("/pa/capture", requireAuth, wrap(async (req, res) => {
   const images = req.body?.images || [];
+  const manual = req.body?.manual_data;
+
+  // Manual-entry path (fallback when OCR fails or the document is unclear).
+  if (manual && typeof manual === "object") {
+    const requestId = uid("req");
+    paStore.put(requestId, {
+      request_id: requestId, user_id: req.user.id, created_at: Date.now(),
+      extracted_data: manual, dictation_transcript: null, user_confirmations: null, claude_result: null,
+    });
+    return res.json({ request_id: requestId, extracted_data: manual, manual: true });
+  }
+
   if (!images.length) return res.status(400).json({ detail: "No document images provided" });
   let extracted;
   try {
     extracted = await llm.extractDocuments(images);
   } catch (e) {
     console.error("OCR failed:", e.message);
-    const detail = /billing/i.test(e.message)
-      ? "Document OCR is not enabled yet: billing must be enabled on the Google Cloud project. Please try again once billing is active."
-      : "Document extraction failed. Please retry with clearer photos.";
-    return res.status(422).json({ detail });
+    let detail;
+    if (/billing/i.test(e.message)) {
+      detail = "Document OCR is not enabled yet: billing must be enabled on the Google Cloud project. You can enter the details manually below.";
+    } else if (e.code === "UNCLEAR") {
+      detail = "Document is unclear or blurry — please upload a clearer photo, or enter the details manually below.";
+    } else {
+      detail = "Couldn't read the document. Please retry with a clearer photo, or enter the details manually below.";
+    }
+    return res.status(422).json({ detail, allow_manual: true });
   }
   const requestId = uid("req");
   paStore.put(requestId, {
