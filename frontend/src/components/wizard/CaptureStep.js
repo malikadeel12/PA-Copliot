@@ -44,6 +44,7 @@ export default function CaptureStep({ state, patch, onNext }) {
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState(null);
   const [manualMode, setManualMode] = useState(false);
+  const [attempts, setAttempts] = useState(0);
   const [manual, setManual] = useState({});
   const inputs = useRef({});
 
@@ -67,10 +68,17 @@ export default function CaptureStep({ state, patch, onNext }) {
       toast.success("Documents read successfully");
     } catch (e) {
       const msg = formatApiError(e.response?.data?.detail);
-      toast.error(msg);
       if (e.response?.data?.allow_manual) {
-        setManualMode(true);
-        toast("You can enter the details manually below.", { icon: "✍️" });
+        const n = attempts + 1;
+        setAttempts(n);
+        if (n >= 3) {
+          setManualMode(true);
+          toast.error("We still couldn't read the document after 3 attempts. Please enter the details manually below.");
+        } else {
+          toast.error(`This document is unclear or unreadable. Please upload a clearer photo and try again. (Attempt ${n} of 3)`);
+        }
+      } else {
+        toast.error(msg);
       }
     } finally {
       setBusy(false);
@@ -171,7 +179,7 @@ export default function CaptureStep({ state, patch, onNext }) {
           <div className="flex items-center gap-2 text-emerald-700"><CheckCircle2 className="w-5 h-5" /><span className="font-heading font-semibold">Extracted data</span></div>
           <ExtractedGrid data={extractedPreview} />
           <div className="mt-6 flex justify-end gap-3">
-            <Button data-testid="capture-reextract-btn" variant="outline" onClick={() => { patch({ extractedData: null, requestId: null }); setManualMode(false); }} className="h-11 rounded-xl border-stone-300">Re-scan</Button>
+            <Button data-testid="capture-reextract-btn" variant="outline" onClick={() => { patch({ extractedData: null, requestId: null }); setManualMode(false); setAttempts(0); }} className="h-11 rounded-xl border-stone-300">Re-scan</Button>
             <Button data-testid="capture-next-btn" onClick={onNext} className="h-11 px-6 bg-emerald-900 hover:bg-emerald-800 text-white font-semibold rounded-md border border-emerald-950 transition-colors">
               Continue to dictation <ArrowRight className="w-4 h-4 ml-2" />
             </Button>
@@ -180,7 +188,7 @@ export default function CaptureStep({ state, patch, onNext }) {
       ) : manualMode ? (
         <div className="mt-8 rounded-lg bg-white border border-amber-300 p-6 shadow-sm animate-fade-in-up" data-testid="manual-entry-panel">
           <div className="flex items-center gap-2 text-amber-700"><Keyboard className="w-5 h-5" /><span className="font-heading font-semibold">Enter details manually</span></div>
-          <p className="mt-1 text-sm text-stone-500">We couldn't read the document clearly. Fill in the fields below (patient name and primary ICD-10 are required).</p>
+          <p className="mt-1 text-sm text-stone-500">We couldn't read the document after 3 attempts. Fill in the fields below (patient name and primary ICD-10 are required).</p>
           <div className="mt-4 grid sm:grid-cols-2 gap-4">
             {MANUAL_FIELDS.map((f) => (
               <div key={f.key}>
@@ -191,7 +199,7 @@ export default function CaptureStep({ state, patch, onNext }) {
             ))}
           </div>
           <div className="mt-6 flex justify-end gap-3">
-            <Button data-testid="manual-cancel-btn" variant="outline" onClick={() => setManualMode(false)} className="h-11 rounded-xl border-stone-300">Back to upload</Button>
+            <Button data-testid="manual-cancel-btn" variant="outline" onClick={() => { setManualMode(false); setAttempts(0); }} className="h-11 rounded-xl border-stone-300">Back to upload</Button>
             <Button data-testid="manual-submit-btn" onClick={submitManual} disabled={busy}
               className="h-11 px-6 bg-emerald-900 hover:bg-emerald-800 text-white font-semibold rounded-md border border-emerald-950 transition-colors">
               {busy ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Saving…</> : <>Save details <ArrowRight className="w-4 h-4 ml-2" /></>}
@@ -200,16 +208,13 @@ export default function CaptureStep({ state, patch, onNext }) {
         </div>
       ) : (
         <div className="mt-8 flex items-center justify-between gap-4 flex-wrap">
-          <span className="text-sm text-stone-500">{captured} of 3 documents added</span>
-          <div className="flex items-center gap-3">
-            <Button data-testid="manual-toggle-btn" variant="outline" onClick={() => setManualMode(true)} className="h-12 px-4 rounded-md border-stone-300">
-              <Keyboard className="w-4 h-4 mr-2" /> Enter manually
-            </Button>
-            <Button data-testid="capture-analyze-btn" onClick={analyze} disabled={busy || captured === 0}
-              className="h-12 px-6 bg-emerald-900 hover:bg-emerald-800 text-white font-semibold rounded-md border border-emerald-950 transition-colors">
-              {busy ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Reading documents…</> : <><ScanLine className="w-4 h-4 mr-2" /> Extract data</>}
-            </Button>
-          </div>
+          <span className="text-sm text-stone-500">
+            {captured} of 3 documents added{attempts > 0 ? ` · attempt ${attempts} of 3` : ""}
+          </span>
+          <Button data-testid="capture-analyze-btn" onClick={analyze} disabled={busy || captured === 0}
+            className="h-12 px-6 bg-emerald-900 hover:bg-emerald-800 text-white font-semibold rounded-md border border-emerald-950 transition-colors">
+            {busy ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Reading documents…</> : <><ScanLine className="w-4 h-4 mr-2" /> Extract data</>}
+          </Button>
         </div>
       )}
 
