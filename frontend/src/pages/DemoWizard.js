@@ -164,12 +164,6 @@ export default function DemoWizard() {
         </div>
       </header>
 
-      <div className="bg-amber-50 border-b border-amber-200 no-print">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 py-2 text-center text-xs font-medium text-amber-800">
-          Client demo mode · Selected files stay in this browser · Demo results use sample data
-        </div>
-      </div>
-
       <main className="flex-1 w-full max-w-4xl mx-auto px-4 sm:px-6 pt-8 pb-24">
         {step === 0 && (
           <section className="animate-fade-in-up">
