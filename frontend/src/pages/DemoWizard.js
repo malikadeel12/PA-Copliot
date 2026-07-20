@@ -1,9 +1,9 @@
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import {
   ArrowLeft, ArrowRight, Check, CheckCircle2, FileText, IdCard,
-  CreditCard, Loader2, Route, ShieldCheck, Sparkles, X,
+  CreditCard, Loader2, RefreshCw, Route, ShieldCheck, Sparkles, Upload, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -13,9 +13,9 @@ import ResultsStep from "@/components/wizard/ResultsStep";
 const STEP_LABELS = ["Capture", "Dictate", "Validate", "Package"];
 
 const DEMO_DOCUMENTS = [
-  { icon: IdCard, title: "Patient ID", detail: "Jane A. Doe · DOB 04/12/1979" },
-  { icon: CreditCard, title: "Insurance card", detail: "UnitedHealthcare · UHC998877665" },
-  { icon: FileText, title: "Clinical / order doc", detail: "Humira 40 mg · Rheumatology" },
+  { key: "id", icon: IdCard, title: "Patient ID", detail: "Driver's license or government ID" },
+  { key: "insurance", icon: CreditCard, title: "Insurance card", detail: "Front or back of the member card" },
+  { key: "clinical", icon: FileText, title: "Clinical / order doc", detail: "Progress note, prescription, or order" },
 ];
 
 const DEMO_TRANSCRIPT = "Requesting initial authorization for Jane A. Doe, date of birth April 12, 1979. The primary diagnosis is rheumatoid arthritis with rheumatoid factor. The patient has persistent joint pain and morning stiffness despite an adequate trial of methotrexate. Humira 40 mg every other week is medically necessary to control disease activity and prevent further joint damage.";
@@ -69,17 +69,48 @@ const DEMO_RESULT = {
 export default function DemoWizard() {
   const navigate = useNavigate();
   const [step, setStep] = useState(0);
+  const [documents, setDocuments] = useState({ id: null, insurance: null, clinical: null });
   const [documentsReady, setDocumentsReady] = useState(false);
   const [transcript, setTranscript] = useState(DEMO_TRANSCRIPT);
   const [analyzing, setAnalyzing] = useState(false);
+  const fileInputs = useRef({});
+
+  const uploadedCount = Object.values(documents).filter(Boolean).length;
+
+  const selectDocument = (key, file) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("Please select a JPEG, PNG, or other image file.");
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error("Please select an image smaller than 10 MB.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      setDocuments((current) => ({
+        ...current,
+        [key]: { name: file.name, preview: reader.result },
+      }));
+      setDocumentsReady(false);
+    };
+    reader.onerror = () => toast.error("That image could not be opened. Please try another file.");
+    reader.readAsDataURL(file);
+  };
 
   const simulateExtraction = () => {
+    if (uploadedCount === 0) {
+      toast.error("Add at least one document first.");
+      return;
+    }
     setDocumentsReady(false);
-    toast.info("Reading demo documents…");
+    toast.info("Reading documents…");
     setTimeout(() => {
       setDocumentsReady(true);
-      toast.success("Demo documents read successfully");
-    }, 700);
+      toast.success("Documents read successfully");
+    }, 1200);
   };
 
   const simulateAnalysis = () => {
@@ -120,7 +151,7 @@ export default function DemoWizard() {
 
       <div className="bg-amber-50 border-b border-amber-200 no-print">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 py-2 text-center text-xs font-medium text-amber-800">
-          Client demo mode · Uses sample data only · No patient information is uploaded or stored
+          Client demo mode · Selected files stay in this browser · Demo results use sample data
         </div>
       </div>
 
@@ -128,17 +159,75 @@ export default function DemoWizard() {
         {step === 0 && (
           <section className="animate-fade-in-up">
             <span className="text-xs font-semibold uppercase tracking-[0.15em] text-emerald-700">Step 1 · Demo Capture</span>
-            <h1 className="mt-2 font-heading text-3xl sm:text-4xl font-semibold tracking-tight text-stone-900">Review sample documents</h1>
-            <p className="mt-2 text-stone-500 max-w-2xl">For this demo, sample document data is already prepared. Select the button below to simulate secure field extraction.</p>
+            <h1 className="mt-2 font-heading text-3xl sm:text-4xl font-semibold tracking-tight text-stone-900">Upload the three documents</h1>
+            <p className="mt-2 text-stone-500 max-w-2xl">Upload or photograph the documents just like a real request. In demo mode, previews remain in this browser and extraction returns safe sample data.</p>
             <div className="mt-8 grid sm:grid-cols-3 gap-4">
-              {DEMO_DOCUMENTS.map(({ icon: Icon, title, detail }) => (
-                <div key={title} className="min-h-56 rounded-lg border-2 border-emerald-200 bg-white p-5 flex flex-col items-center justify-center text-center shadow-sm">
-                  <div className="w-12 h-12 rounded-lg bg-emerald-50 border border-emerald-100 flex items-center justify-center"><Icon className="w-6 h-6 text-emerald-700" /></div>
-                  <h2 className="mt-4 font-heading font-semibold text-stone-900">{title}</h2>
-                  <p className="mt-2 text-xs leading-relaxed text-stone-500">{detail}</p>
-                  <span className="mt-4 inline-flex items-center gap-1 text-xs font-semibold text-emerald-700"><CheckCircle2 className="w-4 h-4" /> Sample ready</span>
-                </div>
-              ))}
+              {DEMO_DOCUMENTS.map(({ key, icon: Icon, title, detail }) => {
+                const document = documents[key];
+                return (
+                  <div key={key} className="relative">
+                    <input
+                      ref={(element) => { fileInputs.current[key] = element; }}
+                      data-testid={`demo-upload-${key}`}
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      className="hidden"
+                      onChange={(event) => selectDocument(key, event.target.files?.[0])}
+                    />
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => fileInputs.current[key]?.click()}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          fileInputs.current[key]?.click();
+                        }
+                      }}
+                      className={`relative min-h-64 aspect-[3/4] rounded-lg border-2 overflow-hidden flex flex-col items-center justify-center text-center cursor-pointer transition-colors shadow-sm ${document ? "border-emerald-400 bg-stone-100" : "border-dashed border-stone-300 bg-white hover:border-emerald-400 hover:bg-emerald-50/30"}`}
+                    >
+                      {document ? (
+                        <>
+                          <img src={document.preview} alt={`${title} preview`} className="absolute inset-0 w-full h-full object-contain" />
+                          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-stone-950/90 to-transparent px-3 pt-10 pb-3 text-left">
+                            <p className="truncate text-xs font-medium text-white">{document.name}</p>
+                            <span className="mt-1 inline-flex items-center gap-1 text-[11px] text-emerald-200"><CheckCircle2 className="w-3.5 h-3.5" /> Ready</span>
+                          </div>
+                          <button
+                            type="button"
+                            title={`Replace ${title}`}
+                            onClick={(event) => { event.stopPropagation(); fileInputs.current[key]?.click(); }}
+                            className="absolute top-2 right-2 rounded-full bg-white/95 p-2 text-stone-700 shadow hover:bg-white"
+                          >
+                            <RefreshCw className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            title={`Remove ${title}`}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setDocuments((current) => ({ ...current, [key]: null }));
+                              setDocumentsReady(false);
+                              if (fileInputs.current[key]) fileInputs.current[key].value = "";
+                            }}
+                            className="absolute top-2 left-2 rounded-full bg-white/95 p-2 text-stone-700 shadow hover:bg-white"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </>
+                      ) : (
+                        <div className="p-5 flex flex-col items-center">
+                          <div className="w-12 h-12 rounded-lg bg-emerald-50 border border-emerald-100 flex items-center justify-center"><Icon className="w-6 h-6 text-emerald-700" /></div>
+                          <h2 className="mt-4 font-heading font-semibold text-stone-900">{title}</h2>
+                          <p className="mt-2 text-xs leading-relaxed text-stone-500">{detail}</p>
+                          <span className="mt-4 inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700"><Upload className="w-4 h-4" /> Upload / snap</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
             {documentsReady && (
               <div className="mt-6 rounded-lg border border-emerald-200 bg-emerald-50 p-5 grid sm:grid-cols-2 gap-3 text-sm">
@@ -147,11 +236,12 @@ export default function DemoWizard() {
                 <DemoRow label="Diagnosis" value="M05.79" /><DemoRow label="Medication" value="Humira 40 mg" />
               </div>
             )}
-            <div className="mt-8 flex justify-end">
+            <div className="mt-8 flex items-center justify-between gap-4 flex-wrap">
+              <span className="text-sm text-stone-500">{uploadedCount} of 3 documents added</span>
               {documentsReady ? (
                 <Button onClick={() => setStep(1)} className="h-12 px-6 bg-emerald-900 hover:bg-emerald-800">Continue to dictation <ArrowRight className="w-4 h-4 ml-2" /></Button>
               ) : (
-                <Button data-testid="demo-extract" onClick={simulateExtraction} className="h-12 px-6 bg-emerald-900 hover:bg-emerald-800"><Sparkles className="w-4 h-4 mr-2" /> Simulate extraction</Button>
+                <Button data-testid="demo-extract" onClick={simulateExtraction} disabled={uploadedCount === 0} className="h-12 px-6 bg-emerald-900 hover:bg-emerald-800"><Sparkles className="w-4 h-4 mr-2" /> Extract data</Button>
               )}
             </div>
           </section>
