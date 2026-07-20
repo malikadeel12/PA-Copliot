@@ -9,7 +9,9 @@ import ResetPassword from "@/pages/ResetPassword";
 import Dashboard from "@/pages/Dashboard";
 import Profile from "@/pages/Profile";
 import BuyCredits from "@/pages/BuyCredits";
-import Wizard from "@/pages/Wizard";
+// TEMPORARILY DISABLED FOR THE CLIENT DEMO:
+// import Wizard from "@/pages/Wizard";
+import DemoWizard from "@/pages/DemoWizard";
 import AdminDashboard from "@/pages/AdminDashboard";
 
 function Spinner() {
@@ -43,7 +45,9 @@ function AppRouter() {
       <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
       <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
       <Route path="/buy-credits" element={<ProtectedRoute><BuyCredits /></ProtectedRoute>} />
-      <Route path="/new-request" element={<ProtectedRoute><Wizard /></ProtectedRoute>} />
+      {/* Production request logic is preserved in pages/Wizard.js and components/wizard/*. */}
+      {/* <Route path="/new-request" element={<ProtectedRoute><Wizard /></ProtectedRoute>} /> */}
+      <Route path="/new-request" element={<ProtectedRoute><DemoWizard /></ProtectedRoute>} />
       <Route path="/admin" element={<AdminRoute><AdminDashboard /></AdminRoute>} />
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
