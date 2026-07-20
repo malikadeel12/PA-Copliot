@@ -39,3 +39,11 @@ memory/
 # ---- Google Cloud service-account key (never commit) ----
 gcp-service-account.json
 **/gcp-service-account.json
+.env.*
+*.env
+credentials.json
+*.pem
+*.key
+.credentials
+.git-credentials
+.gitconfig
