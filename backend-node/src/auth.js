@@ -36,6 +36,15 @@ async function ensureProfile(user) {
   };
   const { data: created, error } = await adminClient
     .from("profiles").insert(insert).select("*").single();
+  // Multiple tabs or near-simultaneous frontend auth listeners can reach
+  // first-profile creation together. The losing insert should reuse the
+  // profile created by the winning request, not fail the user's login.
+  if (error?.code === "23505") {
+    const { data: racedProfile, error: selectError } = await adminClient
+      .from("profiles").select("*").eq("id", user.id).single();
+    if (selectError) throw selectError;
+    return racedProfile;
+  }
   if (error) throw error;
   await adminClient.from("credit_transactions")
     .insert({ user_id: user.id, type: "signup_grant", amount: insert.credits });

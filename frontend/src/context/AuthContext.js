@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
 import api from "@/lib/api";
 import { supabase } from "@/lib/supabase";
 
@@ -8,16 +8,25 @@ export function AuthProvider({ children }) {
   const [session, setSession] = useState(null);
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const profileRequest = useRef(null);
 
   const loadProfile = useCallback(async () => {
-    try {
-      const { data } = await api.get("/auth/me");
-      setUser(data);
-      return data;
-    } catch {
-      setUser(null);
-      return null;
-    }
+    // Sign-in and onAuthStateChange may ask for the profile at nearly the
+    // same time. Share one request to avoid racing first-profile creation.
+    if (profileRequest.current) return profileRequest.current;
+    profileRequest.current = api.get("/auth/me")
+      .then(({ data }) => {
+        setUser(data);
+        return data;
+      })
+      .catch(() => {
+        setUser(null);
+        return null;
+      })
+      .finally(() => {
+        profileRequest.current = null;
+      });
+    return profileRequest.current;
   }, []);
 
   useEffect(() => {
@@ -37,14 +46,24 @@ export function AuthProvider({ children }) {
     init();
     // Failsafe: never trap the user on an infinite spinner if the backend is slow/unreachable.
     const failsafe = setTimeout(() => { if (mounted) setLoading(false); }, 30000);
-    const { data: sub } = supabase.auth.onAuthStateChange(async (_event, s) => {
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => {
       setSession(s);
-      try {
-        if (s) await loadProfile();
-        else setUser(null);
-      } finally {
+      if (!s) {
+        setUser(null);
         setLoading(false);
+        return;
       }
+
+      // Supabase invokes this callback while completing the auth operation.
+      // Awaiting a backend request here makes sign-in/sign-up wait for Render
+      // (and can deadlock other Supabase calls). Schedule profile hydration
+      // outside the auth callback instead.
+      setTimeout(() => {
+        if (!mounted) return;
+        loadProfile().finally(() => {
+          if (mounted) setLoading(false);
+        });
+      }, 0);
     });
     return () => { mounted = false; clearTimeout(failsafe); sub.subscription.unsubscribe(); };
   }, [loadProfile]);
