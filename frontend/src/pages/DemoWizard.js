@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { TrustBadge } from "@/components/TrustBadge";
 import ResultsStep from "@/components/wizard/ResultsStep";
+import { useAuth } from "@/context/AuthContext";
 
 const STEP_LABELS = ["Capture", "Dictate", "Validate", "Package"];
 
@@ -68,12 +69,14 @@ const DEMO_RESULT = {
 
 export default function DemoWizard() {
   const navigate = useNavigate();
+  const { setUser } = useAuth();
   const [step, setStep] = useState(0);
   const [documents, setDocuments] = useState({ id: null, insurance: null, clinical: null });
   const [documentsReady, setDocumentsReady] = useState(false);
   const [transcript, setTranscript] = useState(DEMO_TRANSCRIPT);
   const [analyzing, setAnalyzing] = useState(false);
   const fileInputs = useRef({});
+  const creditDeducted = useRef(false);
 
   const uploadedCount = Object.values(documents).filter(Boolean).length;
 
@@ -120,6 +123,18 @@ export default function DemoWizard() {
       setStep(3);
       toast.success("Demo analysis complete");
     }, 1000);
+  };
+
+  const finishDemo = () => {
+    if (!creditDeducted.current) {
+      creditDeducted.current = true;
+      setUser((currentUser) => currentUser ? {
+        ...currentUser,
+        credits: Math.max(0, (currentUser.credits || 0) - 1),
+      } : currentUser);
+      toast.success("Request completed · 1 demo credit used");
+    }
+    navigate("/dashboard");
   };
 
   return (
@@ -292,7 +307,7 @@ export default function DemoWizard() {
           </section>
         )}
 
-        {step === 3 && <ResultsStep state={{ result: DEMO_RESULT }} onExit={() => navigate("/dashboard")} />}
+        {step === 3 && <ResultsStep state={{ result: DEMO_RESULT }} onExit={finishDemo} />}
       </main>
 
       <footer className="no-print border-t border-stone-200 bg-white py-4">
