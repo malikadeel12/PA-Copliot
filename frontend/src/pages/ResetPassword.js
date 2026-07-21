@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@/lib/supabase";
+import { supabase, exchangeCodeForSessionOnce } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,20 +16,41 @@ export default function ResetPassword() {
   const errShown = useRef(false);
 
   useEffect(() => {
-    // Surface an expired/invalid recovery link (arrives as an error in the URL hash).
+    let active = true;
+    // Surface expired/invalid links returned in either query parameters or the
+    // URL hash (the latter keeps compatibility with older implicit-flow links).
+    const q = new URLSearchParams(window.location.search);
     const h = new URLSearchParams(window.location.hash.replace(/^#/, ""));
-    if (h.get("error") && !errShown.current) {
+    const urlError = q.get("error_description") || q.get("error") || h.get("error_description") || h.get("error");
+    if (urlError && !errShown.current) {
       errShown.current = true;
       setInvalid(true);
-      setTimeout(() => toast.error(decodeURIComponent(h.get("error_description") || h.get("error")).replace(/\+/g, " "), { duration: 8000 }), 100);
+      setTimeout(() => toast.error(decodeURIComponent(urlError).replace(/\+/g, " "), { duration: 8000 }), 100);
       return;
     }
-    // detectSessionInUrl establishes the recovery session; wait for it.
-    supabase.auth.getSession().then(({ data }) => { if (data.session) setReady(true); });
-    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
-      if (session && (event === "PASSWORD_RECOVERY" || event === "SIGNED_IN" || event === "INITIAL_SESSION")) setReady(true);
-    });
-    return () => sub.subscription.unsubscribe();
+
+    const establishRecoverySession = async () => {
+      try {
+        const code = q.get("code");
+        if (code) {
+          const { error } = await exchangeCodeForSessionOnce(code);
+          if (error) throw error;
+        }
+        const { data, error } = await supabase.auth.getSession();
+        if (error) throw error;
+        if (!data.session) throw new Error("This reset link is invalid or has expired.");
+        if (active) setReady(true);
+      } catch (error) {
+        if (!active) return;
+        setInvalid(true);
+        if (!errShown.current) {
+          errShown.current = true;
+          setTimeout(() => toast.error(error?.message || "This reset link is invalid or has expired.", { duration: 8000 }), 100);
+        }
+      }
+    };
+    establishRecoverySession();
+    return () => { active = false; };
   }, []);
 
   const submit = async (e) => {
