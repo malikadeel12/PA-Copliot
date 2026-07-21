@@ -29,10 +29,11 @@ export function exchangeCodeForSessionOnce(code) {
   if (!code) return Promise.reject(new Error("Missing authorization code."));
   if (pendingCode !== code || !pendingExchange) {
     pendingCode = code;
-    pendingExchange = supabase.auth.exchangeCodeForSession(code).finally(() => {
-      pendingCode = null;
-      pendingExchange = null;
-    });
+    // Keep the settled promise for this code for the lifetime of the page.
+    // A PKCE authorization code and verifier are single-use. Clearing this
+    // promise after success allowed a repeated callback effect to submit the
+    // same code again after its verifier had already been consumed.
+    pendingExchange = supabase.auth.exchangeCodeForSession(code);
   }
   return pendingExchange;
 }

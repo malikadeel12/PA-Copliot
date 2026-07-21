@@ -31,8 +31,15 @@ export default function AuthCallback() {
 
         const code = params.get("code");
         if (code) {
-          const { error } = await exchangeCodeForSessionOnce(code);
-          if (error) throw error;
+          // A page reload can revisit the one-time callback URL after the
+          // exchange already succeeded. Reuse the persisted session instead
+          // of attempting to consume the PKCE code/verifier again.
+          const { data: existing, error: sessionError } = await supabase.auth.getSession();
+          if (sessionError) throw sessionError;
+          if (!existing.session) {
+            const { error } = await exchangeCodeForSessionOnce(code);
+            if (error) throw error;
+          }
         } else {
           const { data, error } = await supabase.auth.getSession();
           if (error) throw error;
