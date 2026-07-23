@@ -5,7 +5,7 @@
 Google login succeeds, but the client receives:
 
 ```text
-GET https://pa-copilot.onrender.com/api/auth/me
+GET https://pa-copliot.onrender.com/api/auth/me
 net::ERR_CONNECTION_RESET
 ```
 
@@ -18,7 +18,7 @@ The same login and new-account flow has been tested successfully multiple times 
 1. Open:
 
    ```text
-   https://pa-copilot.onrender.com/api/health
+   https://pa-copliot.onrender.com/api/health
    ```
 
 2. Test once with VPN off.
