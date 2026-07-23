@@ -3,7 +3,15 @@ import { supabase } from "@/lib/supabase";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 
-const api = axios.create({ baseURL: `${BACKEND_URL}/api`, timeout: 30000 });
+// In production, keep API traffic on the Vercel origin. frontend/vercel.json
+// proxies /api/* to Render, so browsers in networks that reset direct
+// onrender.com connections never need to contact that domain themselves.
+// Local development continues to use REACT_APP_BACKEND_URL directly.
+const API_BASE_URL = process.env.NODE_ENV === "production"
+  ? "/api"
+  : `${BACKEND_URL || "http://localhost:8001"}/api`;
+
+const api = axios.create({ baseURL: API_BASE_URL, timeout: 30000 });
 
 // Cache the Supabase access token from auth state changes (avoids calling
 // supabase.auth.getSession() inside the request interceptor, which can deadlock
