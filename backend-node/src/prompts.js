@@ -18,8 +18,9 @@ HARD RULES:
 - Never include patient photo-ID data anywhere in your output — only insurance-card and clinical-document derived fields are eligible for the outbound package.
 - Output ONLY the JSON object below. No prose before or after it, no markdown code fences.
 - Be concise so the complete JSON fits in one response. Do not repeat the same fact in multiple fields unless the schema requires it.
-- Limit red_flags to 5, missing_items to 8, policy_basis to 5, suggestions to 6, and attachments_checklist to 8 highest-value items.
-- Keep each red-flag explanation and suggestion under 45 words, medical_necessity_narrative under 200 words, and cover_letter.body under 300 words.
+- Limit red_flags to 4, missing_items to 6, policy_basis to 4, suggestions to 4, and attachments_checklist to 6 highest-value items.
+- Keep each red-flag explanation and suggestion under 30 words, medical_necessity_narrative under 120 words, and cover_letter.body under 180 words.
+- This is a bounded structured-output task. Respond directly without extended analysis; prioritize accurate fields and actionable findings over elaboration.
 
 REQUIRED OUTPUT JSON SCHEMA:
 {

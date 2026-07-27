@@ -100,7 +100,9 @@ async function runReasoning(payload) {
   try {
     resp = await client().messages.create({
       model: MODEL,
-      max_tokens: 16384,
+      max_tokens: 6000,
+      output_config: { effort: "low" },
+      thinking: { type: "disabled" },
       system: PA_REASONING_SYSTEM_PROMPT,
       messages: [{ role: "user", content: userText }],
     });
@@ -141,7 +143,9 @@ async function runReasoning(payload) {
         ];
       retry = await client().messages.create({
         model: MODEL,
-        max_tokens: 16384,
+        max_tokens: 6000,
+        output_config: { effort: "low" },
+        thinking: { type: "disabled" },
         system: PA_REASONING_SYSTEM_PROMPT,
         messages: retryMessages,
       });
