@@ -86,7 +86,6 @@ async function runReasoning(payload) {
     resp = await client().messages.create({
       model: MODEL,
       max_tokens: 8192,
-      temperature: 0.2,
       system: PA_REASONING_SYSTEM_PROMPT,
       messages: [{ role: "user", content: userText }],
     });
@@ -118,7 +117,6 @@ async function runReasoning(payload) {
       retry = await client().messages.create({
         model: MODEL,
         max_tokens: 8192,
-        temperature: 0,
         system: PA_REASONING_SYSTEM_PROMPT,
         messages: [
           { role: "user", content: userText },
