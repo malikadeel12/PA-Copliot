@@ -2,7 +2,6 @@
 const path = require("path");
 const fs = require("fs");
 const { DocumentProcessorServiceClient } = require("@google-cloud/documentai").v1;
-const gaxFallback = require("google-gax/build/src/fallback");
 
 const LOCATION = process.env.DOCUMENT_AI_LOCATION || "us";
 const PROCESSOR_ID = process.env.DOCUMENT_AI_PROCESSOR_ID || "";
@@ -34,7 +33,7 @@ function client() {
       // Render can intermittently fail to establish the default gRPC channel.
       // Google's supported HTTP fallback avoids that transport dependency.
       fallback: true,
-    }, gaxFallback);
+    });
   } else {
     const keyFile = process.env.GCP_KEY_FILE
       ? path.resolve(__dirname, "..", process.env.GCP_KEY_FILE)
@@ -49,7 +48,7 @@ function client() {
     // eslint-disable-next-line import/no-dynamic-require, global-require
     const sa = require(keyFile);
     _projectId = sa.project_id;
-    _client = new DocumentProcessorServiceClient({ keyFilename: keyFile, apiEndpoint, fallback: true }, gaxFallback);
+    _client = new DocumentProcessorServiceClient({ keyFilename: keyFile, apiEndpoint, fallback: true });
   }
   return _client;
 }
