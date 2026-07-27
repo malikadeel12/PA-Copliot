@@ -17,6 +17,9 @@ HARD RULES:
 - If the input payload is missing entire sections (e.g., no dictation), degrade gracefully: still return valid JSON, populate what you can, and surface the gap as a top-priority missing item.
 - Never include patient photo-ID data anywhere in your output — only insurance-card and clinical-document derived fields are eligible for the outbound package.
 - Output ONLY the JSON object below. No prose before or after it, no markdown code fences.
+- Be concise so the complete JSON fits in one response. Do not repeat the same fact in multiple fields unless the schema requires it.
+- Limit red_flags to 5, missing_items to 8, policy_basis to 5, suggestions to 6, and attachments_checklist to 8 highest-value items.
+- Keep each red-flag explanation and suggestion under 45 words, medical_necessity_narrative under 200 words, and cover_letter.body under 300 words.
 
 REQUIRED OUTPUT JSON SCHEMA:
 {

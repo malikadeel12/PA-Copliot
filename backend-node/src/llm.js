@@ -4,6 +4,7 @@ const { PA_REASONING_SYSTEM_PROMPT, OCR_EXTRACTION_PROMPT } = require("./prompts
 const docai = require("./docai");
 
 const MODEL = process.env.ANTHROPIC_MODEL || "claude-3-5-sonnet-latest";
+const EXTRACTION_MODEL = process.env.ANTHROPIC_EXTRACTION_MODEL || MODEL;
 
 function client() {
   return new Anthropic({
@@ -32,6 +33,18 @@ function textFromResponse(resp) {
   return (resp.content || []).map((b) => b.text || "").join("");
 }
 
+function logUsage(stage, resp) {
+  const usage = resp?.usage || {};
+  console.log("Anthropic token usage:", {
+    stage,
+    model: resp?.model || (stage === "extraction" ? EXTRACTION_MODEL : MODEL),
+    inputTokens: usage.input_tokens || 0,
+    outputTokens: usage.output_tokens || 0,
+    cacheReadTokens: usage.cache_read_input_tokens || 0,
+    cacheWriteTokens: usage.cache_creation_input_tokens || 0,
+  });
+}
+
 // 1) Google Document AI OCRs the uploaded documents → raw text.
 // 2) Claude structures that text into the extraction JSON schema.
 async function extractDocuments(imagesB64) {
@@ -56,8 +69,8 @@ async function extractDocuments(imagesB64) {
   let resp;
   try {
     resp = await client().messages.create({
-      model: MODEL,
-      max_tokens: 2048,
+      model: EXTRACTION_MODEL,
+      max_tokens: 1600,
       system: OCR_EXTRACTION_PROMPT,
       messages: [{ role: "user", content: userText }],
     });
@@ -67,25 +80,27 @@ async function extractDocuments(imagesB64) {
       status: error.status || null,
       cause: error.cause?.message || null,
       code: error.cause?.code || error.code || null,
-      model: MODEL,
+      model: EXTRACTION_MODEL,
     });
     const wrapped = new Error(`Anthropic extraction request failed: ${error.message}`);
     wrapped.code = "ANTHROPIC_FAILED";
     wrapped.cause = error;
     throw wrapped;
   }
+  logUsage("extraction", resp);
   return parseJson(textFromResponse(resp));
 }
 
 async function runReasoning(payload) {
   const userText =
-    "INPUT PAYLOAD:\n" + JSON.stringify(payload, null, 2) +
+    // Compact JSON avoids paying for formatting whitespace on every request.
+    "INPUT PAYLOAD:\n" + JSON.stringify(payload) +
     "\n\nReturn ONLY the JSON object per the schema.";
   let resp;
   try {
     resp = await client().messages.create({
       model: MODEL,
-      max_tokens: 8192,
+      max_tokens: 16384,
       system: PA_REASONING_SYSTEM_PROMPT,
       messages: [{ role: "user", content: userText }],
     });
@@ -102,6 +117,7 @@ async function runReasoning(payload) {
     wrapped.cause = error;
     throw wrapped;
   }
+  logUsage("reasoning", resp);
 
   const firstText = textFromResponse(resp);
   try {
@@ -114,16 +130,22 @@ async function runReasoning(payload) {
     });
     let retry;
     try {
-      retry = await client().messages.create({
-        model: MODEL,
-        max_tokens: 8192,
-        system: PA_REASONING_SYSTEM_PROMPT,
-        messages: [
+      const retryMessages = resp.stop_reason === "max_tokens"
+        ? [
+          { role: "user", content: userText + "\n\nYour previous response exceeded the output limit. Generate a fresh, concise, complete JSON response and obey every length/count limit in the system prompt." },
+        ]
+        : [
           { role: "user", content: userText },
           { role: "assistant", content: firstText },
           { role: "user", content: "Repair your previous response. Return one complete valid JSON object matching the required schema. No prose and no markdown fences." },
-        ],
+        ];
+      retry = await client().messages.create({
+        model: MODEL,
+        max_tokens: 16384,
+        system: PA_REASONING_SYSTEM_PROMPT,
+        messages: retryMessages,
       });
+      logUsage("reasoning-retry", retry);
     } catch (error) {
       console.error("Anthropic reasoning retry failed:", {
         message: error.message,
