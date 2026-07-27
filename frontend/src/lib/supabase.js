@@ -19,6 +19,21 @@ export const supabase = createClient(url, key, {
   },
 });
 
+// Password recovery deliberately uses the implicit flow. PKCE recovery codes
+// require the verifier stored in the browser that requested the email, which
+// breaks when users open the email on another browser/device. Recovery links
+// instead return a short-lived session in the URL hash, which ResetPassword
+// transfers into the main persisted client before immediately clearing it.
+export const passwordRecoveryClient = createClient(url, key, {
+  auth: {
+    persistSession: false,
+    autoRefreshToken: false,
+    detectSessionInUrl: false,
+    flowType: "implicit",
+    storageKey: "pa-copilot-password-recovery",
+  },
+});
+
 // React StrictMode can run callback effects more than once in development.
 // Reuse an in-flight exchange for the same authorization code so Supabase's
 // one-time PKCE code is never submitted twice.

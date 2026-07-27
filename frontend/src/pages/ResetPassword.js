@@ -31,8 +31,28 @@ export default function ResetPassword() {
 
     const establishRecoverySession = async () => {
       try {
+        const accessToken = h.get("access_token");
+        const refreshToken = h.get("refresh_token");
+        const tokenHash = q.get("token_hash");
+        const recoveryType = q.get("type");
         const code = q.get("code");
-        if (code) {
+
+        if (accessToken && refreshToken) {
+          const { error } = await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken,
+          });
+          if (error) throw error;
+          // Do not leave recovery credentials visible in browser history.
+          window.history.replaceState(null, "", window.location.pathname);
+        } else if (tokenHash) {
+          const { error } = await supabase.auth.verifyOtp({
+            token_hash: tokenHash,
+            type: recoveryType || "recovery",
+          });
+          if (error) throw error;
+          window.history.replaceState(null, "", window.location.pathname);
+        } else if (code) {
           const { error } = await exchangeCodeForSessionOnce(code);
           if (error) throw error;
         }
