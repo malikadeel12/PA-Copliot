@@ -1,5 +1,6 @@
 // Google Cloud Document AI — OCR text extraction from uploaded document images/PDFs.
 const path = require("path");
+const fs = require("fs");
 const { DocumentProcessorServiceClient } = require("@google-cloud/documentai").v1;
 
 const LOCATION = process.env.DOCUMENT_AI_LOCATION || "us";
@@ -12,6 +13,7 @@ function client() {
   if (_client) return _client;
   const apiEndpoint = `${LOCATION}-documentai.googleapis.com`;
   const inline = process.env.GCP_SERVICE_ACCOUNT_JSON;
+
   if (inline) {
     const sa = JSON.parse(inline);
     sa.private_key = (sa.private_key || "").replace(/\\n/g, "\n");
@@ -25,6 +27,13 @@ function client() {
     const keyFile = process.env.GCP_KEY_FILE
       ? path.resolve(__dirname, "..", process.env.GCP_KEY_FILE)
       : path.join(__dirname, "..", "gcp-service-account.json");
+
+    if (!fs.existsSync(keyFile)) {
+      throw new Error(
+        `GCP Service Account credentials missing. Provide GCP_SERVICE_ACCOUNT_JSON env variable or place file at ${keyFile}`
+      );
+    }
+
     // eslint-disable-next-line import/no-dynamic-require, global-require
     const sa = require(keyFile);
     _projectId = sa.project_id;
@@ -43,7 +52,16 @@ function splitDataUrl(b64) {
 }
 
 function isConfigured() {
-  return Boolean(PROCESSOR_ID) && (process.env.GCP_SERVICE_ACCOUNT_JSON || process.env.GCP_KEY_FILE);
+  const hasLocalFile = fs.existsSync(
+    process.env.GCP_KEY_FILE
+      ? path.resolve(__dirname, "..", process.env.GCP_KEY_FILE)
+      : path.join(__dirname, "..", "gcp-service-account.json")
+  );
+
+  return (
+    Boolean(PROCESSOR_ID) &&
+    Boolean(process.env.GCP_SERVICE_ACCOUNT_JSON || hasLocalFile)
+  );
 }
 
 // Runs Document AI OCR on each image and returns the combined recognized text.
