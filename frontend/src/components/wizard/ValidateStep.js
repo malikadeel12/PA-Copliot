@@ -69,6 +69,11 @@ export default function ValidateStep({ state, patch, onBack, onNext, refreshUser
     } catch (e) {
       const status = e.response?.status;
       if (status === 402) toast.error("Out of credits — please buy more to run the analysis.");
+      else if (e.code === "ECONNABORTED" || /timeout/i.test(e.message || "")) {
+        toast.error("AI analysis is taking longer than expected. Please try again.");
+      } else if (!e.response) {
+        toast.error("Could not reach the analysis server. Check your connection and try again.");
+      }
       else toast.error(formatApiError(e.response?.data?.detail));
     } finally {
       setGenerating(false);

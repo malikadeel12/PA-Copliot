@@ -4,16 +4,17 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import DocumentImageEditor from "@/components/wizard/DocumentImageEditor";
 import { toast } from "sonner";
 import {
   Upload, X, ScanLine, Loader2, ArrowRight, Maximize2, RefreshCw, Keyboard,
-  IdCard, CreditCard, FileText, CheckCircle2,
+  IdCard, CreditCard, FileText, CheckCircle2, Crop,
 } from "lucide-react";
 
 const SLOTS = [
-  { key: "id", icon: IdCard, title: "Patient ID", hint: "Driver's license / gov ID — used only to confirm name & DOB, then discarded." },
-  { key: "insurance", icon: CreditCard, title: "Insurance card", hint: "Front (and back). Retained as eligibility proof." },
-  { key: "clinical", icon: FileText, title: "Clinical / order doc", hint: "Progress note + script/order. Signed clinical evidence." },
+  { key: "id", icon: IdCard, title: "Patient ID", aspect: 1.586, hint: "Driver's license / gov ID — used only to confirm name & DOB, then discarded." },
+  { key: "insurance", icon: CreditCard, title: "Insurance card", aspect: 1.586, hint: "Front (and back). Retained as eligibility proof." },
+  { key: "clinical", icon: FileText, title: "Clinical / order doc", aspect: 0.75, hint: "Progress note + script/order. Signed clinical evidence." },
 ];
 
 const MANUAL_FIELDS = [
@@ -43,6 +44,7 @@ export default function CaptureStep({ state, patch, onNext }) {
   const [images, setImages] = useState({ id: null, insurance: null, clinical: null });
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState(null);
+  const [editor, setEditor] = useState(null);
   const [manualMode, setManualMode] = useState(false);
   const [attempts, setAttempts] = useState(0);
   const [manual, setManual] = useState({});
@@ -52,7 +54,8 @@ export default function CaptureStep({ state, patch, onNext }) {
     if (!file) return;
     if (!/^image\//.test(file.type)) { toast.error("Please upload an image (JPEG/PNG)."); return; }
     const dataUrl = await readAsDataURL(file);
-    setImages((s) => ({ ...s, [key]: dataUrl }));
+    const slot = SLOTS.find((item) => item.key === key);
+    setEditor({ key, src: dataUrl, title: slot?.title || "document", aspect: slot?.aspect || 0.75 });
   };
 
   const extractedPreview = state.extractedData;
@@ -123,7 +126,10 @@ export default function CaptureStep({ state, patch, onNext }) {
                 ref={(el) => (inputs.current[slot.key] = el)}
                 data-testid={`capture-input-${slot.key}`}
                 type="file" accept="image/*" capture="environment" className="hidden"
-                onChange={(e) => pick(slot.key, e.target.files?.[0])}
+                onChange={(e) => {
+                  pick(slot.key, e.target.files?.[0]);
+                  e.target.value = "";
+                }}
               />
               <div
                 role="button"
@@ -150,6 +156,15 @@ export default function CaptureStep({ state, patch, onNext }) {
                       onClick={(e) => { e.stopPropagation(); inputs.current[slot.key]?.click(); }}
                       className="absolute bottom-2 left-2 bg-white/90 rounded-full p-1.5 shadow hover:bg-white" title="Replace"
                     ><RefreshCw className="w-4 h-4 text-stone-700" /></button>
+                    <button
+                      data-testid={`capture-edit-${slot.key}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditor({ key: slot.key, src: img, title: slot.title, aspect: slot.aspect });
+                      }}
+                      className="absolute bottom-2 left-1/2 -translate-x-1/2 bg-white/90 rounded-full p-1.5 shadow hover:bg-white"
+                      title="Crop and adjust"
+                    ><Crop className="w-4 h-4 text-stone-700" /></button>
                     <button
                       data-testid={`capture-remove-${slot.key}`}
                       onClick={(e) => { e.stopPropagation(); setImages((s) => ({ ...s, [slot.key]: null })); }}
@@ -224,6 +239,19 @@ export default function CaptureStep({ state, patch, onNext }) {
           {preview && <img src={preview.src} alt={preview.title} className="w-full max-h-[80vh] object-contain rounded" />}
         </DialogContent>
       </Dialog>
+
+      <DocumentImageEditor
+        open={!!editor}
+        src={editor?.src}
+        title={editor?.title}
+        aspect={editor?.aspect}
+        onCancel={() => setEditor(null)}
+        onApply={(adjustedImage) => {
+          setImages((current) => ({ ...current, [editor.key]: adjustedImage }));
+          setEditor(null);
+          toast.success("Document crop saved");
+        }}
+      />
     </div>
   );
 }

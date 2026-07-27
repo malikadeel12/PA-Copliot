@@ -11,7 +11,9 @@ const API_BASE_URL = process.env.NODE_ENV === "production"
   ? "/api"
   : `${BACKEND_URL || "http://localhost:8001"}/api`;
 
-const api = axios.create({ baseURL: API_BASE_URL, timeout: 30000 });
+// AI reasoning can take longer than ordinary API calls, especially during a
+// Render cold start. Allow enough time for the generate endpoint to finish.
+const api = axios.create({ baseURL: API_BASE_URL, timeout: 120000 });
 
 // Cache the Supabase access token from auth state changes (avoids calling
 // supabase.auth.getSession() inside the request interceptor, which can deadlock
