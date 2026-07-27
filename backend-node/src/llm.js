@@ -6,7 +6,15 @@ const docai = require("./docai");
 const MODEL = process.env.ANTHROPIC_MODEL || "claude-3-5-sonnet-latest";
 
 function client() {
-  return new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  return new Anthropic({
+    apiKey: process.env.ANTHROPIC_API_KEY,
+    baseURL: "https://api.anthropic.com",
+    // Use Node's native fetch on Render instead of the legacy node-fetch shim
+    // bundled by older SDK versions. Retry transient network failures.
+    fetch: globalThis.fetch,
+    timeout: 90000,
+    maxRetries: 4,
+  });
 }
 
 function parseJson(text) {
@@ -54,7 +62,13 @@ async function extractDocuments(imagesB64) {
       messages: [{ role: "user", content: userText }],
     });
   } catch (error) {
-    console.error("Anthropic extraction stage failed:", error.message, error.status || "");
+    console.error("Anthropic extraction stage failed:", {
+      message: error.message,
+      status: error.status || null,
+      cause: error.cause?.message || null,
+      code: error.cause?.code || error.code || null,
+      model: MODEL,
+    });
     const wrapped = new Error(`Anthropic extraction request failed: ${error.message}`);
     wrapped.code = "ANTHROPIC_FAILED";
     wrapped.cause = error;

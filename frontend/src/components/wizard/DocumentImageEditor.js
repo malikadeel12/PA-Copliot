@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Crop, RotateCcw, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 
 const MIN_CROP = 12;
 const INITIAL_CROP = { x: 0, y: 0, width: 100, height: 100 };
@@ -144,7 +144,7 @@ export default function DocumentImageEditor({ open, src, title, onCancel, onAppl
       <DialogContent className="max-w-4xl max-h-[96vh] overflow-y-auto p-0 gap-0">
         <div className="px-5 py-4 border-b border-stone-200">
           <DialogTitle className="flex items-center gap-2"><Crop className="w-5 h-5 text-emerald-700" /> Crop {title}</DialogTitle>
-          <p className="mt-1 text-sm text-stone-500">Drag inside the frame to move it. Drag any corner to resize it.</p>
+          <DialogDescription className="mt-1">Drag inside the frame to move it. Drag any corner to resize it.</DialogDescription>
         </div>
 
         <div className="bg-stone-950 p-4 sm:p-6 flex justify-center overflow-hidden">

@@ -3,7 +3,7 @@ import api, { formatApiError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import DocumentImageEditor from "@/components/wizard/DocumentImageEditor";
 import { toast } from "sonner";
 import {
@@ -236,6 +236,7 @@ export default function CaptureStep({ state, patch, onNext }) {
       <Dialog open={!!preview} onOpenChange={(o) => !o && setPreview(null)}>
         <DialogContent className="max-w-3xl p-2 bg-stone-900 border-stone-700" data-testid="capture-preview-dialog">
           <DialogTitle className="sr-only">{preview?.title || "Document preview"}</DialogTitle>
+          <DialogDescription className="sr-only">Full-size preview of the uploaded document.</DialogDescription>
           {preview && <img src={preview.src} alt={preview.title} className="w-full max-h-[80vh] object-contain rounded" />}
         </DialogContent>
       </Dialog>
