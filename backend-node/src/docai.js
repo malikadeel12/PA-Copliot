@@ -2,6 +2,7 @@
 const path = require("path");
 const fs = require("fs");
 const { DocumentProcessorServiceClient } = require("@google-cloud/documentai").v1;
+const gaxFallback = require("google-gax/build/src/fallback");
 
 const LOCATION = process.env.DOCUMENT_AI_LOCATION || "us";
 const PROCESSOR_ID = process.env.DOCUMENT_AI_PROCESSOR_ID || "";
@@ -15,14 +16,25 @@ function client() {
   const inline = process.env.GCP_SERVICE_ACCOUNT_JSON;
 
   if (inline) {
-    const sa = JSON.parse(inline);
+    let sa;
+    try {
+      sa = JSON.parse(inline.trim());
+    } catch (error) {
+      throw new Error(`GCP_SERVICE_ACCOUNT_JSON is not valid JSON: ${error.message}`);
+    }
+    if (!sa.project_id || !sa.client_email || !sa.private_key) {
+      throw new Error("GCP_SERVICE_ACCOUNT_JSON is missing project_id, client_email, or private_key");
+    }
     sa.private_key = (sa.private_key || "").replace(/\\n/g, "\n");
     _projectId = sa.project_id;
     _client = new DocumentProcessorServiceClient({
       projectId: sa.project_id,
       credentials: { client_email: sa.client_email, private_key: sa.private_key },
       apiEndpoint,
-    });
+      // Render can intermittently fail to establish the default gRPC channel.
+      // Google's supported HTTP fallback avoids that transport dependency.
+      fallback: true,
+    }, gaxFallback);
   } else {
     const keyFile = process.env.GCP_KEY_FILE
       ? path.resolve(__dirname, "..", process.env.GCP_KEY_FILE)
@@ -37,7 +49,7 @@ function client() {
     // eslint-disable-next-line import/no-dynamic-require, global-require
     const sa = require(keyFile);
     _projectId = sa.project_id;
-    _client = new DocumentProcessorServiceClient({ keyFilename: keyFile, apiEndpoint });
+    _client = new DocumentProcessorServiceClient({ keyFilename: keyFile, apiEndpoint, fallback: true }, gaxFallback);
   }
   return _client;
 }
@@ -72,8 +84,18 @@ async function ocrImages(imagesB64) {
   const texts = [];
   for (const b of (imagesB64 || []).filter(Boolean)) {
     const { mimeType, content } = splitDataUrl(b);
-    const [result] = await c.processDocument({ name, rawDocument: { content, mimeType } });
-    texts.push((result.document && result.document.text) || "");
+    try {
+      const [result] = await c.processDocument(
+        { name, rawDocument: { content, mimeType } },
+        { timeout: 90000 },
+      );
+      texts.push((result.document && result.document.text) || "");
+    } catch (error) {
+      const wrapped = new Error(`Google Document AI request failed: ${error.message}`);
+      wrapped.code = "DOCUMENT_AI_FAILED";
+      wrapped.cause = error;
+      throw wrapped;
+    }
   }
   return texts.join("\n\n----- NEXT DOCUMENT -----\n\n");
 }

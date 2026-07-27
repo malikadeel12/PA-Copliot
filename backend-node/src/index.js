@@ -167,10 +167,14 @@ api.post("/pa/capture", requireAuth, wrap(async (req, res) => {
       detail = "Document OCR is not enabled yet: billing must be enabled on the Google Cloud project. You can enter the details manually below.";
     } else if (e.code === "UNCLEAR") {
       detail = "Document is unclear or blurry — please upload a clearer photo, or enter the details manually below.";
+    } else if (e.code === "DOCUMENT_AI_FAILED") {
+      detail = "The document-reading service could not be reached. Please retry shortly. If this continues, check the Google Document AI configuration.";
+    } else if (e.code === "ANTHROPIC_FAILED") {
+      detail = "OCR succeeded, but the AI extraction service failed. Check the Anthropic API key and model configuration.";
     } else {
       detail = "Couldn't read the document. Please retry with a clearer photo, or enter the details manually below.";
     }
-    return res.status(422).json({ detail, allow_manual: true });
+    return res.status(422).json({ detail, allow_manual: true, error_code: e.code || "CAPTURE_FAILED" });
   }
   const requestId = uid("req");
   paStore.put(requestId, {

@@ -28,7 +28,13 @@ function textFromResponse(resp) {
 // 2) Claude structures that text into the extraction JSON schema.
 async function extractDocuments(imagesB64) {
   if (!imagesB64 || imagesB64.length === 0) throw new Error("No images provided");
-  const ocrText = await docai.ocrImages(imagesB64);
+  let ocrText;
+  try {
+    ocrText = await docai.ocrImages(imagesB64);
+  } catch (error) {
+    console.error("Document AI stage failed:", error.message, error.cause?.code || "");
+    throw error;
+  }
   // Blur/unclear guard: too little readable text means the photo is unusable.
   if (!ocrText || ocrText.replace(/[^A-Za-z0-9]/g, "").length < 25) {
     const err = new Error("Unclear document: insufficient readable text");
@@ -39,12 +45,21 @@ async function extractDocuments(imagesB64) {
     "OCR TEXT extracted from the prior-authorization documents (patient ID, insurance card, clinical/order doc):\n\n" +
     ocrText +
     "\n\nStructure this into the required JSON. Return JSON only.";
-  const resp = await client().messages.create({
-    model: MODEL,
-    max_tokens: 2048,
-    system: OCR_EXTRACTION_PROMPT,
-    messages: [{ role: "user", content: userText }],
-  });
+  let resp;
+  try {
+    resp = await client().messages.create({
+      model: MODEL,
+      max_tokens: 2048,
+      system: OCR_EXTRACTION_PROMPT,
+      messages: [{ role: "user", content: userText }],
+    });
+  } catch (error) {
+    console.error("Anthropic extraction stage failed:", error.message, error.status || "");
+    const wrapped = new Error(`Anthropic extraction request failed: ${error.message}`);
+    wrapped.code = "ANTHROPIC_FAILED";
+    wrapped.cause = error;
+    throw wrapped;
+  }
   return parseJson(textFromResponse(resp));
 }
 

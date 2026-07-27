@@ -71,7 +71,7 @@ export default function CaptureStep({ state, patch, onNext }) {
       toast.success("Documents read successfully");
     } catch (e) {
       const msg = formatApiError(e.response?.data?.detail);
-      if (e.response?.data?.allow_manual) {
+      if (e.response?.data?.error_code === "UNCLEAR") {
         const n = attempts + 1;
         setAttempts(n);
         if (n >= 3) {
