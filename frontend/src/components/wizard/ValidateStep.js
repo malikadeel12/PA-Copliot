@@ -61,7 +61,7 @@ export default function ValidateStep({ state, patch, onBack, onNext, refreshUser
     setGenerating(true);
     try {
       await api.post(`/pa/${state.requestId}/confirm`, confirmations);
-      const { data } = await api.post(`/pa/${state.requestId}/generate`);
+      const { data } = await api.post(`/pa/${state.requestId}/generate`, undefined, { timeout: 240000 });
       patch({ confirmations, result: data.result });
       await refreshUser();
       toast.success("Analysis complete");

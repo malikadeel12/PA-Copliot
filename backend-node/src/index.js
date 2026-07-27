@@ -240,8 +240,11 @@ api.post("/pa/:id/generate", requireAuth, wrap(async (req, res) => {
   try {
     result = await llm.runReasoning(payload);
   } catch (e) {
-    console.error("Reasoning failed:", e.message);
-    return res.status(422).json({ detail: "AI analysis failed. Please try again." });
+    console.error("Reasoning failed:", e.code || "UNKNOWN", e.message);
+    const detail = e.code === "REASONING_INVALID_JSON"
+      ? "The AI response was incomplete or malformed. Please run the analysis again."
+      : "The AI analysis service could not complete the request. Please retry shortly.";
+    return res.status(422).json({ detail, error_code: e.code || "REASONING_FAILED" });
   }
 
   const newCredits = (fresh.credits || 0) - 1;

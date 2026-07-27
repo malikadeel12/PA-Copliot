@@ -81,28 +81,77 @@ async function runReasoning(payload) {
   const userText =
     "INPUT PAYLOAD:\n" + JSON.stringify(payload, null, 2) +
     "\n\nReturn ONLY the JSON object per the schema.";
-  const resp = await client().messages.create({
-    model: MODEL,
-    max_tokens: 4096,
-    temperature: 0.2,
-    system: PA_REASONING_SYSTEM_PROMPT,
-    messages: [{ role: "user", content: userText }],
-  });
+  let resp;
   try {
-    return parseJson(textFromResponse(resp));
-  } catch {
-    const retry = await client().messages.create({
+    resp = await client().messages.create({
       model: MODEL,
-      max_tokens: 4096,
-      temperature: 0,
+      max_tokens: 8192,
+      temperature: 0.2,
       system: PA_REASONING_SYSTEM_PROMPT,
-      messages: [
-        { role: "user", content: userText },
-        { role: "assistant", content: textFromResponse(resp) },
-        { role: "user", content: "Your previous reply was not valid JSON. Return ONLY the JSON object, no prose, no code fences." },
-      ],
+      messages: [{ role: "user", content: userText }],
     });
-    return parseJson(textFromResponse(retry));
+  } catch (error) {
+    console.error("Anthropic reasoning request failed:", {
+      message: error.message,
+      status: error.status || null,
+      cause: error.cause?.message || null,
+      code: error.cause?.code || error.code || null,
+      model: MODEL,
+    });
+    const wrapped = new Error(`Anthropic reasoning request failed: ${error.message}`);
+    wrapped.code = "REASONING_API_FAILED";
+    wrapped.cause = error;
+    throw wrapped;
+  }
+
+  const firstText = textFromResponse(resp);
+  try {
+    return parseJson(firstText);
+  } catch (firstParseError) {
+    console.warn("Anthropic reasoning JSON retry:", {
+      parseError: firstParseError.message,
+      stopReason: resp.stop_reason || null,
+      outputCharacters: firstText.length,
+    });
+    let retry;
+    try {
+      retry = await client().messages.create({
+        model: MODEL,
+        max_tokens: 8192,
+        temperature: 0,
+        system: PA_REASONING_SYSTEM_PROMPT,
+        messages: [
+          { role: "user", content: userText },
+          { role: "assistant", content: firstText },
+          { role: "user", content: "Repair your previous response. Return one complete valid JSON object matching the required schema. No prose and no markdown fences." },
+        ],
+      });
+    } catch (error) {
+      console.error("Anthropic reasoning retry failed:", {
+        message: error.message,
+        status: error.status || null,
+        cause: error.cause?.message || null,
+        code: error.cause?.code || error.code || null,
+      });
+      const wrapped = new Error(`Anthropic reasoning retry failed: ${error.message}`);
+      wrapped.code = "REASONING_API_FAILED";
+      wrapped.cause = error;
+      throw wrapped;
+    }
+
+    const retryText = textFromResponse(retry);
+    try {
+      return parseJson(retryText);
+    } catch (finalParseError) {
+      console.error("Anthropic reasoning returned invalid JSON:", {
+        parseError: finalParseError.message,
+        stopReason: retry.stop_reason || null,
+        outputCharacters: retryText.length,
+      });
+      const wrapped = new Error(`AI returned invalid JSON: ${finalParseError.message}`);
+      wrapped.code = "REASONING_INVALID_JSON";
+      throw wrapped;
+    }
   }
 }
 
