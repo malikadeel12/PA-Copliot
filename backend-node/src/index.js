@@ -5,7 +5,7 @@ const cors = require("cors");
 const crypto = require("crypto");
 
 const { adminClient } = require("./supabase");
-const { requireAuth, requireAdmin, publicUser } = require("./auth");
+const { requireAuth, requireAdmin, publicUser, isEmailVerified } = require("./auth");
 const ruleEngine = require("./ruleEngine");
 const llm = require("./llm");
 const paStore = require("./paStore");
@@ -49,7 +49,11 @@ async function countRows(table, filter) {
 // ---------------------------------------------------------------------------
 // Identity  (sign-up / sign-in / Google OAuth are handled client-side by supabase-js)
 // ---------------------------------------------------------------------------
-api.get("/auth/me", requireAuth, (req, res) => res.json(publicUser(req.user)));
+api.get("/auth/me", requireAuth, (req, res) => {
+  const u = publicUser(req.user);
+  u.email_verified = isEmailVerified(req.user);
+  res.json(u);
+});
 
 api.put("/profile", requireAuth, wrap(async (req, res) => {
   const allowed = ["name", "npi", "specialty", "facility_name", "facility_address", "signature_data_url"];
@@ -59,7 +63,9 @@ api.put("/profile", requireAuth, wrap(async (req, res) => {
     await adminClient.from("profiles").update(updates).eq("id", req.user.id);
   }
   const { data } = await adminClient.from("profiles").select("*").eq("id", req.user.id).single();
-  res.json(publicUser(data));
+  const u = publicUser(data);
+  u.email_verified = isEmailVerified(req.user);
+  res.json(u);
 }));
 
 // ---------------------------------------------------------------------------
@@ -143,7 +149,30 @@ api.get("/reference", wrap(async (req, res) => {
 }));
 
 api.post("/pa/capture", requireAuth, wrap(async (req, res) => {
-  const images = req.body?.images || [];
+  // Accept either:
+  //   - legacy: { images: ["data:image/jpeg;base64,..."] }  (single file per slot)
+  //   - new:    { files: [{ section, filename, mimeType, content }, ...] }  (multi-file/multi-format)
+  const rawFiles = Array.isArray(req.body?.files) ? req.body.files : null;
+  const files = rawFiles
+    ? rawFiles
+        .filter((f) => f && typeof f === "object" && f.content)
+        .map((f, i) => ({
+          section: f.section || null,
+          filename: f.filename || `file-${i + 1}`,
+          mimeType: f.mimeType || "application/octet-stream",
+          content: f.content,
+        }))
+    : Array.isArray(req.body?.images)
+    ? req.body.images.map((b64, i) => ({
+        section: null,
+        filename: `image-${i + 1}`,
+        // Trust the data-URL header when available; fall back to jpeg.
+        mimeType: (typeof b64 === "string" && b64.startsWith("data:"))
+          ? (b64.match(/data:(.*?);base64/)?.[1] || "image/jpeg")
+          : "image/jpeg",
+        content: b64,
+      }))
+    : [];
   const manual = req.body?.manual_data;
 
   // Manual-entry path (fallback when OCR fails or the document is unclear).
@@ -156,10 +185,10 @@ api.post("/pa/capture", requireAuth, wrap(async (req, res) => {
     return res.json({ request_id: requestId, extracted_data: manual, manual: true });
   }
 
-  if (!images.length) return res.status(400).json({ detail: "No document images provided" });
+  if (!files.length) return res.status(400).json({ detail: "No document files provided" });
   let extracted;
   try {
-    extracted = await llm.extractDocuments(images);
+    extracted = await llm.extractDocuments(files);
   } catch (e) {
     console.error("OCR failed:", e.message);
     let detail;
@@ -181,7 +210,7 @@ api.post("/pa/capture", requireAuth, wrap(async (req, res) => {
     request_id: requestId, user_id: req.user.id, created_at: Date.now(),
     extracted_data: extracted, dictation_transcript: null, user_confirmations: null, claude_result: null,
   });
-  res.json({ request_id: requestId, extracted_data: extracted });
+  res.json({ request_id: requestId, extracted_data: extracted, file_count: files.length });
 }));
 
 api.post("/pa/:id/dictate", requireAuth, wrap(async (req, res) => {

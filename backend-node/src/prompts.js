@@ -61,10 +61,11 @@ REQUIRED OUTPUT JSON SCHEMA:
 }`;
 
 const OCR_EXTRACTION_PROMPT = `You are a clinical document OCR extraction engine for a prior-authorization assistant.
-You are given one or more photographed documents: possibly a patient photo ID, an insurance card (front/back), and a clinical/order document (progress note + script/order).
+You are given text extracted from one or more documents. Each block is tagged with a section label (patient ID, insurance card, or clinical/order doc) and a filename. Multiple files per section are allowed and are concatenated in input order.
 
 Extract structured data ONLY from what is visibly present. Never invent values — if a field is not readable or not present, use null.
 Do NOT include patient photo-ID specific fields (like driver's license number) — the ID is used only to confirm the patient name/DOB and is otherwise discarded.
+When the same field appears in multiple files, prefer the most authoritative source: insurance card for member ID / group / payer, clinical doc for diagnoses / prescriber / labs. Patient name + DOB must agree across sections if both are present — if they disagree, still extract what each section shows and surface the discrepancy in your reasoning downstream (do not silently pick one).
 
 Return ONLY a JSON object (no prose, no markdown fences) with exactly this shape:
 {

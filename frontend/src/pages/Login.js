@@ -19,7 +19,14 @@ export default function Login() {
   const [form, setForm] = useState({ name: "", email: "", password: "" });
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => { if (user) navigate(user.role === "admin" ? "/admin" : "/dashboard", { replace: true }); }, [user, navigate]);
+  useEffect(() => {
+    if (user) {
+      // Authenticated users without a complete prescriber profile are routed
+      // to mandatory onboarding regardless of role.
+      if (!user.profile_complete) navigate("/onboarding", { replace: true });
+      else navigate(user.role === "admin" ? "/admin" : "/dashboard", { replace: true });
+    }
+  }, [user, navigate]);
 
   // Surface OAuth errors returned on the redirect (e.g. misconfigured Google client).
   // Guard against React 18 StrictMode double-invocation clearing the URL before the toast renders.
@@ -73,7 +80,8 @@ export default function Login() {
         if (error) throw error;
         const profile = await refreshUser();
         toast.success("Welcome back");
-        navigate(profile?.role === "admin" ? "/admin" : "/dashboard", { replace: true });
+        if (!profile?.profile_complete) navigate("/onboarding", { replace: true });
+        else navigate(profile?.role === "admin" ? "/admin" : "/dashboard", { replace: true });
       } else {
       const { data, error } = await supabase.auth.signUp({
           email: form.email,
@@ -86,10 +94,14 @@ export default function Login() {
         if (error) throw error;
         if (data.session) {
           const profile = await refreshUser();
-          toast.success("Account created — 5 free credits added");
-          navigate(profile?.role === "admin" ? "/admin" : "/dashboard", { replace: true });
+          toast.success("Account created — 10 free credits added");
+          if (!profile?.profile_complete) navigate("/onboarding", { replace: true });
+          else navigate(profile?.role === "admin" ? "/admin" : "/dashboard", { replace: true });
         } else {
-          toast.success("Account created. Please check your email to confirm, then sign in.");
+          toast.success(
+            "Account created. We sent a verification link to " + form.email + ". Confirm it to activate your 10 free credits.",
+            { duration: 8000 }
+          );
           setMode("login");
         }
       }
@@ -163,7 +175,7 @@ export default function Login() {
             {mode === "login"
               ? "Welcome back. Let's clear that queue."
               : mode === "register"
-              ? "Start with 5 free analysis credits."
+              ? "Start with 10 free analysis credits. Email verification required."
               : "Enter your email and we'll send you a reset link."}
           </p>
 

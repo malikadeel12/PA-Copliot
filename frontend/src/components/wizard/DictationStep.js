@@ -97,6 +97,7 @@ export default function DictationStep({ state, patch, onBack, onNext }) {
         </div>
         <Textarea
           data-testid="dictation-transcript"
+          data-jump-focus="dictation-transcript"
           value={transcript}
           onChange={(e) => setTranscript(e.target.value)}
           placeholder="Tap Dictate and speak, or type the clinical narrative here…"

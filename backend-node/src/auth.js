@@ -1,38 +1,81 @@
 const { authClient, adminClient } = require("./supabase");
 
-const SIGNUP_FREE_CREDITS = 5;
+const SIGNUP_FREE_CREDITS = 10;
 const ADMIN_CREDITS = 100;
+
+// Mandatory prescriber onboarding — required fields before dashboard access.
+const MANDATORY_FIELDS = ["name", "npi", "specialty", "facility_name", "facility_address"];
 
 function isAdminEmail(email) {
   const admin = (process.env.ADMIN_EMAIL || "").toLowerCase();
   return admin && (email || "").toLowerCase() === admin;
 }
 
+function isProfileComplete(profile) {
+  if (!profile) return false;
+  if (profile.role === "admin") return true;
+  for (const f of MANDATORY_FIELDS) {
+    const v = (profile[f] || "").toString().trim();
+    if (!v) return false;
+  }
+  return true;
+}
+
+function providerFromUser(user) {
+  return (user.app_metadata && user.app_metadata.provider) || "email";
+}
+
+function isEmailVerified(user) {
+  if (!user) return false;
+  if (providerFromUser(user) !== "email") return true;
+  // Supabase sets `email_confirmed_at` when the user verifies their email.
+  return Boolean(user.email_confirmed_at);
+}
+
 // Ensures a `profiles` row exists for the authenticated Supabase user.
-// First login grants free credits; the configured ADMIN_EMAIL is promoted to admin.
+// For non-Google signups, free credits are only granted once the email is
+// verified (Supabase sets `email_confirmed_at` after the confirmation link).
+// The configured ADMIN_EMAIL is always promoted to admin.
 async function ensureProfile(user) {
   const { data: existing } = await adminClient
     .from("profiles").select("*").eq("id", user.id).maybeSingle();
 
   if (existing) {
+    let next = existing;
     if (isAdminEmail(user.email) && existing.role !== "admin") {
       const { data: up } = await adminClient
         .from("profiles").update({ role: "admin" }).eq("id", user.id).select("*").single();
-      return up || existing;
+      if (up) next = up;
     }
-    return existing;
+    // Lazy credit grant: if the profile was created before email verification
+    // and the user has now confirmed their email, give them the signup bonus.
+    const verified = isEmailVerified(user);
+    const alreadyGranted = (existing.credits || 0) > 0 || existing.role === "admin";
+    if (verified && !alreadyGranted) {
+      const newCredits = (existing.credits || 0) + SIGNUP_FREE_CREDITS;
+      const { data: credited } = await adminClient
+        .from("profiles").update({ credits: newCredits }).eq("id", user.id).select("*").single();
+      if (credited) next = credited;
+      await adminClient.from("credit_transactions").insert({
+        user_id: user.id, type: "signup_grant", amount: SIGNUP_FREE_CREDITS,
+      });
+    }
+    return next;
   }
 
   const admin = isAdminEmail(user.email);
   const meta = user.user_metadata || {};
+  const verified = isEmailVerified(user);
+  // Email signups start with 0 credits until verification; Google + admin get theirs immediately.
+  const initialCredits = admin ? ADMIN_CREDITS : (verified ? SIGNUP_FREE_CREDITS : 0);
   const insert = {
     id: user.id,
     email: user.email,
     name: meta.full_name || meta.name || null,
     signature_data_url: meta.avatar_url || null,
     role: admin ? "admin" : "physician",
-    credits: admin ? ADMIN_CREDITS : SIGNUP_FREE_CREDITS,
-    auth_provider: (user.app_metadata && user.app_metadata.provider) || "email",
+    credits: initialCredits,
+    auth_provider: providerFromUser(user),
   };
   const { data: created, error } = await adminClient
     .from("profiles").insert(insert).select("*").single();
@@ -46,8 +89,10 @@ async function ensureProfile(user) {
     return racedProfile;
   }
   if (error) throw error;
-  await adminClient.from("credit_transactions")
-    .insert({ user_id: user.id, type: "signup_grant", amount: insert.credits });
+  if (initialCredits > 0) {
+    await adminClient.from("credit_transactions")
+      .insert({ user_id: user.id, type: "signup_grant", amount: initialCredits });
+  }
   return created;
 }
 
@@ -86,7 +131,11 @@ function publicUser(p) {
     credits: p.credits ?? 0,
     role: p.role ?? "physician",
     auth_provider: p.auth_provider ?? "supabase",
+    profile_complete: isProfileComplete(p),
   };
 }
 
-module.exports = { SIGNUP_FREE_CREDITS, requireAuth, requireAdmin, publicUser };
+module.exports = {
+  SIGNUP_FREE_CREDITS, MANDATORY_FIELDS, isProfileComplete,
+  requireAuth, requireAdmin, publicUser, isEmailVerified,
+};

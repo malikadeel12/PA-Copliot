@@ -101,7 +101,7 @@ export default function ValidateStep({ state, patch, onBack, onNext, refreshUser
           <div className="flex items-center gap-2 text-stone-800"><Route className="w-4 h-4 text-emerald-600" /><span className="font-heading font-semibold text-sm">Payer Portal Destination</span></div>
           {grids?.portal_match?.auto_matched && <span className="mt-2 inline-block text-[11px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">Auto-matched from insurance card</span>}
           <Select value={portal} onValueChange={setPortal}>
-            <SelectTrigger data-testid="validate-portal-select" className="mt-3 h-11"><SelectValue placeholder="Select portal" /></SelectTrigger>
+            <SelectTrigger data-testid="validate-portal-select" data-jump-focus="validate-portal-select" className="mt-3 h-11"><SelectValue placeholder="Select portal" /></SelectTrigger>
             <SelectContent className="max-h-72">
               {(grids?.portals || []).map((p) => (
                 <SelectItem key={p.portal} value={p.portal}>{p.portal} · <span className="text-stone-400">{p.category}</span></SelectItem>
@@ -114,18 +114,18 @@ export default function ValidateStep({ state, patch, onBack, onNext, refreshUser
         <div className="rounded-lg bg-white border border-stone-300 p-5 shadow-sm">
           <div className="flex items-center gap-2 text-stone-800"><Layers className="w-4 h-4 text-emerald-600" /><span className="font-heading font-semibold text-sm">Quantity & Place of Service</span></div>
           <Select value={quantity} onValueChange={setQuantity}>
-            <SelectTrigger data-testid="validate-quantity-select" className="mt-3 h-11"><SelectValue placeholder="Quantity / duration" /></SelectTrigger>
+            <SelectTrigger data-testid="validate-quantity-select" data-jump-focus="validate-quantity-select" className="mt-3 h-11"><SelectValue placeholder="Quantity / duration" /></SelectTrigger>
             <SelectContent>{(grids?.presets?.quantity_presets || []).map((q) => <SelectItem key={q} value={q}>{q}</SelectItem>)}</SelectContent>
           </Select>
           <Select value={place} onValueChange={setPlace}>
-            <SelectTrigger data-testid="validate-place-select" className="mt-3 h-11"><SelectValue placeholder="Place of service" /></SelectTrigger>
+            <SelectTrigger data-testid="validate-place-select" data-jump-focus="validate-place-select" className="mt-3 h-11"><SelectValue placeholder="Place of service" /></SelectTrigger>
             <SelectContent>{(grids?.presets?.place_of_service || []).map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
           </Select>
         </div>
       </div>
 
       {/* Code cross-walk */}
-      <div className="mt-4 rounded-lg bg-white border border-stone-300 p-5 shadow-sm">
+      <div data-jump-focus="validate-crosswalk" className="mt-4 rounded-lg bg-white border border-stone-300 p-5 shadow-sm">
         <div className="flex items-center gap-2 text-stone-800"><ShieldQuestion className="w-4 h-4 text-emerald-600" /><span className="font-heading font-semibold text-sm">Code Binding & Cross-Walk</span></div>
         <p className="text-xs text-stone-400 mt-1">Confirm each ICD-10 → procedure/drug code mapping. Low confidence must be reviewed.</p>
         <div className="mt-3 space-y-2">
@@ -166,7 +166,7 @@ export default function ValidateStep({ state, patch, onBack, onNext, refreshUser
       </div>
 
       {/* Modifiers */}
-      <div className="mt-4 rounded-lg bg-white border border-stone-300 p-5 shadow-sm">
+      <div data-jump-focus="validate-modifiers" className="mt-4 rounded-lg bg-white border border-stone-300 p-5 shadow-sm">
         <span className="font-heading font-semibold text-sm text-stone-800">Applicable modifiers</span>
         <div className="mt-3 flex flex-wrap gap-2">
           {(grids?.presets?.modifier_presets || []).slice(0, 16).map((m) => (
@@ -186,7 +186,7 @@ export default function ValidateStep({ state, patch, onBack, onNext, refreshUser
             <span className="font-heading font-semibold text-sm text-stone-800">Urgent request</span>
             <p className="text-xs text-stone-400">Toggle if immediate clinical risk requires expedited review.</p>
           </div>
-          <Switch data-testid="validate-urgent-switch" checked={urgent} onCheckedChange={setUrgent} />
+          <Switch data-testid="validate-urgent-switch" data-jump-focus="validate-urgent-switch" checked={urgent} onCheckedChange={setUrgent} />
         </div>
         {urgent && (
           <Textarea data-testid="validate-urgency-text" value={urgencyText} onChange={(e) => setUrgencyText(e.target.value)}

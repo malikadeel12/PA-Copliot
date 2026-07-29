@@ -15,7 +15,7 @@ now run on **Supabase** (Postgres + Supabase Auth). AI uses **your own Anthropic
   `Authorization: Bearer <token>`.
 - This backend **verifies** the token with `supabase.auth.getUser(token)` (anon key) and does all
   DB work with the **service-role key** (bypasses RLS).
-- On first authenticated call, a `profiles` row is auto-created with **5 free credits**. The user
+- On first authenticated call, a `profiles` row is auto-created with **10 free credits** (Google + admin only — email signups must verify before credits are granted). The user
   whose email equals `ADMIN_EMAIL` is auto-promoted to **admin** (100 credits).
 - There are no `/auth/register` or `/auth/login` endpoints anymore — Supabase handles that.
 

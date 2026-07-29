@@ -1,10 +1,16 @@
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
 import {
   FileText, Gauge, Lightbulb, Mail, Download, Printer, CheckCircle2,
-  AlertTriangle, ShieldCheck, ClipboardList, LogOut, Sparkles,
+  AlertTriangle, ShieldCheck, ClipboardList, LogOut, Sparkles, Wand2,
+  Bold, Italic, Signature, RotateCcw, Copy,
 } from "lucide-react";
+import { resolveJumpTarget, getStepLabel } from "@/components/wizard/suggestionTargets";
 
 const riskColor = (risk) => ({
   Low: "text-emerald-700 bg-emerald-50 border-emerald-200",
@@ -18,7 +24,7 @@ const impactColor = (i) => ({
   Low: "bg-stone-300 text-stone-700",
 }[i] || "bg-stone-300 text-stone-700");
 
-export default function ResultsStep({ state, onExit }) {
+export default function ResultsStep({ state, patch, onExit, onJumpToStep }) {
   const r = state.result || {};
   const form = useMemo(() => r.filled_form || {}, [r.filled_form]);
   const analysis = r.analysis || {};
@@ -29,14 +35,149 @@ export default function ResultsStep({ state, onExit }) {
 
   const scoreColor = pct >= 75 ? "#059669" : pct >= 50 ? "#d97706" : "#e11d48";
 
+  // Snapshot the AI's original draft on first render so "Reset to AI draft"
+  // always recovers the exact text Claude produced, regardless of subsequent
+  // patches to state.result.
+  const aiDraftRef = useRef(letter);
+  const aiDraft = aiDraftRef.current;
+
+  // Inject a tiny print-only stylesheet that converts the inline markdown
+  // markers (**bold**, *italic*) used by the toolbar into real <b>/<i> tags
+  // when the doctor hits "Print / PDF". Safe to register repeatedly — browsers
+  // dedupe by selector.
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const id = "pa-letter-print-styles";
+    if (document.getElementById(id)) return;
+    const style = document.createElement("style");
+    style.id = id;
+    style.textContent = `
+      @media print {
+        [data-print-letter] strong { font-weight: 700; }
+      }
+      @media print {
+        body.print-scope-panel-form [data-print-outside-panel="panel-form"],
+        body.print-scope-panel-form .no-print,
+        body.print-scope-panel-form header.sticky,
+        body.print-scope-panel-form footer.no-print,
+        body.print-scope-panel-form .master-export-bar { display: none !important; }
+        body.print-scope-panel-form [data-print-target="panel-form"] {
+          position: absolute !important;
+          left: 0 !important; top: 0 !important;
+          width: 100% !important;
+          box-shadow: none !important;
+          border: 1px solid #ccc !important;
+        }
+      }
+      @media print {
+        body.print-scope-panel-analysis [data-print-outside-panel="panel-analysis"],
+        body.print-scope-panel-analysis .no-print,
+        body.print-scope-panel-analysis header.sticky,
+        body.print-scope-panel-analysis footer.no-print,
+        body.print-scope-panel-analysis .master-export-bar { display: none !important; }
+        body.print-scope-panel-analysis [data-print-target="panel-analysis"] {
+          position: absolute !important;
+          left: 0 !important; top: 0 !important;
+          width: 100% !important;
+          box-shadow: none !important;
+          border: 1px solid #ccc !important;
+        }
+      }
+      @media print {
+        body.print-scope-panel-suggestions [data-print-outside-panel="panel-suggestions"],
+        body.print-scope-panel-suggestions .no-print,
+        body.print-scope-panel-suggestions header.sticky,
+        body.print-scope-panel-suggestions footer.no-print,
+        body.print-scope-panel-suggestions .master-export-bar { display: none !important; }
+        body.print-scope-panel-suggestions [data-print-target="panel-suggestions"] {
+          position: absolute !important;
+          left: 0 !important; top: 0 !important;
+          width: 100% !important;
+          box-shadow: none !important;
+          border: 1px solid #ccc !important;
+        }
+      }
+      @media print {
+        body.print-scope-panel-letter [data-print-outside-panel="panel-letter"],
+        body.print-scope-panel-letter .no-print,
+        body.print-scope-panel-letter header.sticky,
+        body.print-scope-panel-letter footer.no-print,
+        body.print-scope-panel-letter .master-export-bar { display: none !important; }
+        body.print-scope-panel-letter [data-print-target="panel-letter"] {
+          position: absolute !important;
+          left: 0 !important; top: 0 !important;
+          width: 100% !important;
+          box-shadow: none !important;
+          border: 1px solid #ccc !important;
+        }
+      }
+    `;
+    document.head.appendChild(style);
+  }, []);
+
+  // Clicking a "Fix / Edit Step" button jumps back to the relevant step
+  // (without purging the session) and focuses the offending field. If the
+  // target_field is unrecognized we fall back to the closest reasonable step.
+  const jumpToSuggestion = (s) => {
+    const target = resolveJumpTarget(s?.target_field) || resolveJumpTarget("validate");
+    if (!onJumpToStep || !target) return;
+    toast.info(`Jumping back to ${getStepLabel(target.step)} — ${target.focus === "capture-rescan" ? "re-scan or re-enter" : "edit the suggested field"}, then re-run analysis.`);
+    onJumpToStep(target.step, target.focus);
+  };
+
   const downloadJson = () => {
     const blob = new Blob([JSON.stringify(r, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url; a.download = `pa-package-${Date.now()}.json`; a.click();
     URL.revokeObjectURL(url);
-    toast.success("Package downloaded");
+    toast.success("Complete package downloaded");
   };
+
+  // Scope the browser's print dialog to a single panel by toggling a body
+  // class (the injected stylesheet hides everything outside the target).
+  // After the print dialog returns, the class is removed so normal layout
+  // resumes. `null` means "print everything" — the default for the master bar.
+  const printScope = (testid, label) => {
+    if (typeof document === "undefined") return;
+    const body = document.body;
+    // Clear any stale scope from a previous print that may have aborted.
+    body.classList.forEach((c) => { if (c.startsWith("print-scope-")) body.classList.remove(c); });
+    if (testid) body.classList.add(`print-scope-${testid}`);
+    toast.info(label || "Opening print dialog — choose 'Save as PDF' as the destination to export a PDF.");
+    // Defer slightly so the toast + layout settle before the modal opens.
+    setTimeout(() => {
+      window.print();
+      // Best-effort cleanup; if the dialog is still open, the class is
+      // harmless until the next print.
+      body.classList.forEach((c) => { if (c.startsWith("print-scope-")) body.classList.remove(c); });
+    }, 50);
+  };
+
+  const panelActions = (testid, label) => (
+    <div className="flex items-center gap-1 no-print" data-print-outside-panel={testid}>
+      <button
+        type="button"
+        data-testid={`${testid}-print-btn`}
+        aria-label={`Print ${label}`}
+        onClick={() => printScope(testid, `Printing ${label}…`)}
+        className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded border border-stone-200 bg-white hover:bg-stone-50 text-stone-700"
+        title={`Print ${label}`}
+      >
+        <Printer className="w-3.5 h-3.5" /> Print
+      </button>
+      <button
+        type="button"
+        data-testid={`${testid}-pdf-btn`}
+        aria-label={`Save ${label} as PDF`}
+        onClick={() => printScope(testid, `Choose "Save as PDF" in the print dialog to export ${label} as PDF.`)}
+        className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded border border-stone-200 bg-white hover:bg-stone-50 text-stone-700"
+        title={`Save ${label} as PDF (opens print dialog)`}
+      >
+        <Download className="w-3.5 h-3.5" /> PDF
+      </button>
+    </div>
+  );
 
   const formRows = useMemo(() => ([
     ["Patient", form.patient_name], ["DOB", form.date_of_birth], ["Payer", form.payer_name],
@@ -54,15 +195,15 @@ export default function ResultsStep({ state, onExit }) {
           <h1 className="mt-2 font-heading text-3xl sm:text-4xl font-semibold tracking-tight text-stone-900">Your submission package</h1>
           <p className="mt-2 text-stone-500">Four deliverables, ready to submit. Review, then export — the session purges after.</p>
         </div>
-        <div className="flex gap-2">
-          <Button data-testid="export-print-btn" variant="outline" onClick={() => window.print()} className="h-11 rounded-xl border-stone-300"><Printer className="w-4 h-4 mr-2" /> Print / PDF</Button>
-          <Button data-testid="export-json-btn" onClick={downloadJson} className="h-11 rounded-md bg-emerald-900 hover:bg-emerald-800 text-white border border-emerald-950"><Download className="w-4 h-4 mr-2" /> Export</Button>
+        <div className="flex gap-2 master-export-bar">
+          <Button data-testid="master-print-btn" variant="outline" onClick={() => printScope(null, "Opening print dialog for the complete package.")} className="h-11 rounded-xl border-stone-300"><Printer className="w-4 h-4 mr-2" /> Print All</Button>
+          <Button data-testid="master-download-btn" onClick={downloadJson} className="h-11 px-6 bg-emerald-900 hover:bg-emerald-800 text-white border border-emerald-950"><Download className="w-4 h-4 mr-2" /> Download Complete Package</Button>
         </div>
       </div>
 
       <div className="mt-8 grid lg:grid-cols-2 gap-6">
         {/* Panel 2 — Technical Analysis (feature it first, top-left) */}
-        <Panel testid="panel-analysis" icon={Gauge} title="Technical Analysis">
+        <Panel testid="panel-analysis" icon={Gauge} title="Approval Analysis" actions={panelActions("panel-analysis", "Approval Analysis")}>
           <div className="flex items-center gap-5">
             <div className="relative w-24 h-24 shrink-0">
               <svg viewBox="0 0 100 100" className="w-24 h-24 -rotate-90">
@@ -113,24 +254,40 @@ export default function ResultsStep({ state, onExit }) {
         </Panel>
 
         {/* Panel 3 — Suggestions */}
-        <Panel testid="panel-suggestions" icon={Lightbulb} title="Optimization Suggestions">
+        <Panel testid="panel-suggestions" icon={Lightbulb} title="Suggestions List" actions={panelActions("panel-suggestions", "Suggestions List")}>
           {suggestions.length === 0 && <p className="text-sm text-stone-400">No suggestions — this request looks complete.</p>}
           <div className="space-y-3">
-            {suggestions.map((s, i) => (
-              <div key={i} data-testid={`suggestion-${i}`} className="p-3 rounded-xl border border-stone-200 bg-stone-50/60">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs font-mono font-semibold text-stone-400">#{s.priority ?? i + 1}</span>
-                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold uppercase tracking-wider ${impactColor(s.expected_impact)}`}>{s.expected_impact} impact</span>
+            {suggestions.map((s, i) => {
+              const target = resolveJumpTarget(s?.target_field);
+              return (
+                <div key={i} data-testid={`suggestion-${i}`} className="p-3 rounded-xl border border-stone-200 bg-stone-50/60">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-mono font-semibold text-stone-400">#{s.priority ?? i + 1}</span>
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold uppercase tracking-wider ${impactColor(s.expected_impact)}`}>{s.expected_impact} impact</span>
+                  </div>
+                  <p className="mt-1.5 text-sm text-stone-800">{s.action}</p>
+                  {s.target_field && <p className="mt-1 text-[11px] text-stone-400">→ {s.target_field}</p>}
+                  <div className="mt-2 flex items-center justify-between gap-2">
+                    <span className="text-[11px] text-stone-400">
+                      {target ? `Go to Step ${target.step + 1} · ${target.stepLabel}` : "Go to Validate"}
+                    </span>
+                    <button
+                      type="button"
+                      data-testid={`suggestion-${i}-fix-btn`}
+                      onClick={() => jumpToSuggestion(s)}
+                      className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-800 hover:text-emerald-900 bg-white border border-emerald-200 hover:border-emerald-300 rounded-full px-3 py-1 transition-colors"
+                    >
+                      <Wand2 className="w-3.5 h-3.5" /> Fix / Edit Step
+                    </button>
+                  </div>
                 </div>
-                <p className="mt-1.5 text-sm text-stone-800">{s.action}</p>
-                {s.target_field && <p className="mt-1 text-[11px] text-stone-400">→ {s.target_field}</p>}
-              </div>
-            ))}
+              );
+            })}
           </div>
         </Panel>
 
         {/* Panel 1 — Filled PA Form */}
-        <Panel testid="panel-form" icon={FileText} title="Filled PA Form">
+        <Panel testid="panel-form" icon={FileText} title="Filled PA Form" actions={panelActions("panel-form", "Filled PA Form")}>
           <div className="grid sm:grid-cols-2 gap-x-6 gap-y-1.5">
             {formRows.map(([k, v]) => (
               <div key={k} className="flex items-center justify-between border-b border-stone-100 py-1.5">
@@ -147,17 +304,13 @@ export default function ResultsStep({ state, onExit }) {
           )}
         </Panel>
 
-        {/* Panel 4 — Cover letter + submission */}
-        <Panel testid="panel-letter" icon={Mail} title="Cover Letter & Routing">
-          <div className="text-sm space-y-1 text-stone-700">
-            {letter.to && <div><span className="text-stone-400">To:</span> {letter.to}</div>}
-            {letter.fax_or_portal_route && <div><span className="text-stone-400">Route:</span> {letter.fax_or_portal_route}</div>}
-            {letter.subject && <div className="font-medium">{letter.subject}</div>}
-          </div>
-          {letter.body && (
-            <pre className="mt-3 text-xs text-stone-600 leading-relaxed whitespace-pre-wrap font-sans bg-stone-50 rounded-lg p-3 border border-stone-100 max-h-56 overflow-auto pa-scroll">{letter.body}</pre>
-          )}
-          {letter.signature_block && <div className="mt-2 text-xs text-stone-500 italic whitespace-pre-wrap">{letter.signature_block}</div>}
+        {/* Panel 4 — Cover letter (editable) + submission */}
+        <Panel testid="panel-letter" icon={Mail} title="Cover Letter & Routing" actions={panelActions("panel-letter", "Cover Letter & Routing")}>
+          <EditableCoverLetter
+            letter={letter}
+            aiDraft={aiDraft}
+            onChange={(next) => patch({ result: { ...r, cover_letter: next } })}
+          />
 
           <div className="mt-4 border-t border-stone-100 pt-3">
             <div className="flex items-center gap-2 text-sm text-stone-800"><ClipboardList className="w-4 h-4 text-emerald-600" /><span className="font-medium">Submission</span></div>
@@ -189,14 +342,171 @@ export default function ResultsStep({ state, onExit }) {
   );
 }
 
-function Panel({ icon: Icon, title, testid, children }) {
+function Panel({ icon: Icon, title, testid, actions, children }) {
   return (
-    <div data-testid={testid} className="bg-white border border-stone-300 rounded-lg p-6 shadow-sm flex flex-col break-inside-avoid">
-      <div className="flex items-center gap-2 mb-4">
-        <div className="w-8 h-8 rounded-md border border-stone-200 bg-stone-50 flex items-center justify-center"><Icon className="w-4 h-4 text-emerald-800" /></div>
-        <h3 className="font-heading font-semibold text-stone-900">{title}</h3>
+    <div
+      data-testid={testid}
+      data-print-target={testid}
+      className="bg-white border border-stone-300 rounded-lg p-6 shadow-sm flex flex-col break-inside-avoid"
+    >
+      <div className="flex items-start justify-between gap-3 mb-4">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="w-8 h-8 rounded-md border border-stone-200 bg-stone-50 flex items-center justify-center shrink-0">
+            <Icon className="w-4 h-4 text-emerald-800" />
+          </div>
+          <h3 className="font-heading font-semibold text-stone-900 truncate">{title}</h3>
+        </div>
+        {actions}
       </div>
       {children}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// EditableCoverLetter
+//
+// Inline editable cover letter. Header fields (To / Route / Subject) are
+// single-line <Input>s. The body and signature block are multi-line
+// <Textarea>s so line breaks survive printing and JSON export without any
+// HTML injection. B/I toolbar buttons wrap the current selection in
+// `**…**` / `*…*` markers; a print stylesheet (registered by the parent)
+// renders them as <strong>/<em> when the doctor hits "Print / PDF".
+//
+// All edits flow back to the parent via `onChange`, which patches
+// state.result.cover_letter — keeping JSON export and re-runs in sync.
+// ---------------------------------------------------------------------------
+function EditableCoverLetter({ letter, aiDraft, onChange }) {
+  const { user } = useAuth();
+  const bodyRef = useRef(null);
+
+  const update = (patch) => onChange({ ...letter, ...patch });
+
+  const wrapSelection = (marker) => {
+    const el = bodyRef.current;
+    if (!el) return;
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+    const selected = (letter.body || "").slice(start, end);
+    const next = (letter.body || "").slice(0, start) + marker + selected + marker + (letter.body || "").slice(end);
+    update({ body: next });
+    requestAnimationFrame(() => {
+      el.focus();
+      el.selectionStart = start + marker.length;
+      el.selectionEnd = end + marker.length;
+    });
+  };
+
+  const insertSignature = () => {
+    const sig = (user?.signature_data_url || "").trim();
+    if (!sig) { toast.error("No saved signature — set one in Profile first."); return; }
+    const el = bodyRef.current;
+    const append = (sig.includes("\n") ? "\n" : " ") + sig;
+    if (!el) { update({ body: (letter.body || "") + append }); return; }
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+    const next = (letter.body || "").slice(0, start) + append + (letter.body || "").slice(end);
+    update({ body: next });
+    requestAnimationFrame(() => { el.focus(); el.selectionStart = el.selectionEnd = start + append.length; });
+  };
+
+  const resetToAiDraft = () => {
+    onChange({ ...aiDraft });
+    toast.success("Cover letter reset to AI draft");
+  };
+
+  const copyLetter = async () => {
+    const text = [
+      letter.to && `To: ${letter.to}`,
+      letter.fax_or_portal_route && `Route: ${letter.fax_or_portal_route}`,
+      letter.subject && `Subject: ${letter.subject}`,
+      letter.body,
+      letter.signature_block && `\n—\n${letter.signature_block}`,
+    ].filter(Boolean).join("\n\n");
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success("Cover letter copied");
+    } catch { toast.error("Couldn't copy — your browser blocked clipboard access."); }
+  };
+
+  const bodyLen = (letter.body || "").length;
+
+  return (
+    <div data-print-letter className="space-y-3">
+      {/* Inline header fields — read like editable labels, not a separate form. */}
+      <div className="grid sm:grid-cols-2 gap-2">
+        <div>
+          <Label className="text-[10px] font-semibold uppercase tracking-wider text-stone-400">To</Label>
+          <Input data-testid="letter-to" value={letter.to || ""} onChange={(e) => update({ to: e.target.value })}
+            placeholder="Payer reviewer name / department" className="mt-1 h-9 text-sm" />
+        </div>
+        <div>
+          <Label className="text-[10px] font-semibold uppercase tracking-wider text-stone-400">Route</Label>
+          <Input data-testid="letter-route" value={letter.fax_or_portal_route || ""} onChange={(e) => update({ fax_or_portal_route: e.target.value })}
+            placeholder="Portal URL or fax number" className="mt-1 h-9 text-sm" />
+        </div>
+      </div>
+      <div>
+        <Label className="text-[10px] font-semibold uppercase tracking-wider text-stone-400">Subject</Label>
+        <Input data-testid="letter-subject" value={letter.subject || ""} onChange={(e) => update({ subject: e.target.value })}
+          placeholder="Prior authorization request — patient name" className="mt-1 h-9 text-sm font-medium" />
+      </div>
+
+      {/* Toolbar */}
+      <div className="flex items-center justify-between gap-2 flex-wrap no-print">
+        <div className="flex items-center gap-1">
+          <button type="button" data-testid="letter-bold-btn" onClick={() => wrapSelection("**")}
+            className="inline-flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded border border-stone-200 bg-white hover:bg-stone-50 text-stone-700">
+            <Bold className="w-3.5 h-3.5" /> B
+          </button>
+          <button type="button" data-testid="letter-italic-btn" onClick={() => wrapSelection("*")}
+            className="inline-flex items-center gap-1 px-2 py-1 text-xs italic rounded border border-stone-200 bg-white hover:bg-stone-50 text-stone-700">
+            <Italic className="w-3.5 h-3.5" /> I
+          </button>
+          <button type="button" data-testid="letter-insert-signature-btn" onClick={insertSignature}
+            className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded border border-stone-200 bg-white hover:bg-stone-50 text-stone-700">
+            <Signature className="w-3.5 h-3.5" /> Insert signature
+          </button>
+        </div>
+        <div className="flex items-center gap-1">
+          <button type="button" data-testid="letter-copy-btn" onClick={copyLetter}
+            className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded border border-stone-200 bg-white hover:bg-stone-50 text-stone-700">
+            <Copy className="w-3.5 h-3.5" /> Copy
+          </button>
+          <button type="button" data-testid="letter-reset-btn" onClick={resetToAiDraft}
+            className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded border border-stone-200 bg-white hover:bg-stone-50 text-stone-700">
+            <RotateCcw className="w-3.5 h-3.5" /> Reset to AI draft
+          </button>
+        </div>
+      </div>
+
+      {/* Body editor */}
+      <div>
+        <Textarea
+          ref={bodyRef}
+          data-testid="letter-body"
+          value={letter.body || ""}
+          onChange={(e) => update({ body: e.target.value })}
+          placeholder="Edit the cover letter narrative here. Use **bold**, *italic*, and Insert signature above."
+          className="min-h-[180px] resize-y text-sm leading-relaxed font-sans bg-stone-50 border-stone-200"
+        />
+        <div className="mt-1 flex items-center justify-between">
+          <span className="text-[11px] text-stone-400">Edits persist to JSON export and Print / PDF.</span>
+          <span data-testid="letter-charcount" className="text-[11px] font-mono text-stone-400">{bodyLen} chars</span>
+        </div>
+      </div>
+
+      {/* Signature block editor */}
+      <div>
+        <Label className="text-[10px] font-semibold uppercase tracking-wider text-stone-400">Signature block</Label>
+        <Textarea
+          data-testid="letter-signature"
+          value={letter.signature_block || ""}
+          onChange={(e) => update({ signature_block: e.target.value })}
+          placeholder="Closing & signature — e.g. 'Sincerely,\nDr. Sarah Kim, MD\nRiverside Clinic'"
+          className="mt-1 min-h-[70px] resize-y text-xs italic font-sans bg-stone-50 border-stone-200"
+        />
+      </div>
     </div>
   );
 }

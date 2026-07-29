@@ -1,6 +1,8 @@
-// Google Cloud Document AI — OCR text extraction from uploaded document images/PDFs.
+// Google Cloud Document AI — OCR text extraction from uploaded document
+// images / PDFs, with local fallbacks for plain text and Word documents.
 const path = require("path");
 const fs = require("fs");
+const mammoth = require("mammoth");
 const { DocumentProcessorServiceClient } = require("@google-cloud/documentai").v1;
 
 const LOCATION = process.env.DOCUMENT_AI_LOCATION || "us";
@@ -75,28 +77,100 @@ function isConfigured() {
   );
 }
 
-// Runs Document AI OCR on each image and returns the combined recognized text.
-async function ocrImages(imagesB64) {
+// Decode a base64 string (data URL or raw) into a Buffer.
+function decodeBase64(input) {
+  const { content } = splitDataUrl(input);
+  return Buffer.from(content, "base64");
+}
+
+// Plain-text parser — used when no Document AI processor is configured
+// for the format (DOCX, TXT) or when the user uploaded a .txt directly.
+function normalizeText(s) {
+  return (s || "").replace(/\r\n/g, "\n").trim();
+}
+
+async function extractTextFile(file) {
+  const buf = decodeBase64(file.content);
+  const text = normalizeText(buf.toString("utf8"));
+  return text;
+}
+
+async function extractDocxFile(file) {
+  const buf = decodeBase64(file.content);
+  // mammoth extracts raw text from .docx without needing Microsoft Word.
+  const { value } = await mammoth.extractRawText({ buffer: buf });
+  return normalizeText(value);
+}
+
+async function ocrBinaryWithDocAi(file) {
   if (!PROCESSOR_ID) throw new Error("DOCUMENT_AI_PROCESSOR_ID env var is not set");
   const c = client();
   const name = `projects/${_projectId}/locations/${LOCATION}/processors/${PROCESSOR_ID}`;
-  const texts = [];
-  for (const b of (imagesB64 || []).filter(Boolean)) {
-    const { mimeType, content } = splitDataUrl(b);
-    try {
-      const [result] = await c.processDocument(
-        { name, rawDocument: { content, mimeType } },
-        { timeout: 90000 },
-      );
-      texts.push((result.document && result.document.text) || "");
-    } catch (error) {
-      const wrapped = new Error(`Google Document AI request failed: ${error.message}`);
-      wrapped.code = "DOCUMENT_AI_FAILED";
-      wrapped.cause = error;
-      throw wrapped;
-    }
+  const { mimeType, content } = splitDataUrl(file.content);
+  try {
+    const [result] = await c.processDocument(
+      { name, rawDocument: { content, mimeType } },
+      { timeout: 90000 },
+    );
+    return (result.document && result.document.text) || "";
+  } catch (error) {
+    const wrapped = new Error(`Google Document AI request failed: ${error.message}`);
+    wrapped.code = "DOCUMENT_AI_FAILED";
+    wrapped.cause = error;
+    throw wrapped;
   }
-  return texts.join("\n\n----- NEXT DOCUMENT -----\n\n");
 }
 
-module.exports = { ocrImages, isConfigured };
+// File shape: { section?: "id"|"insurance"|"clinical", filename: string,
+//                mimeType: string, content: string (base64 or data URL) }
+// Returns: { section, filename, mimeType, text } per file, in input order.
+async function extractFiles(files) {
+  const out = [];
+  for (const file of (files || []).filter(Boolean)) {
+    const mime = (file.mimeType || "").toLowerCase();
+    let text = "";
+    if (mime === "application/pdf" || mime.startsWith("image/")) {
+      text = await ocrBinaryWithDocAi(file);
+    } else if (
+      mime === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+      mime === "application/msword" ||
+      /\.docx?$/i.test(file.filename || "")
+    ) {
+      text = await extractDocxFile(file);
+    } else if (mime === "text/plain" || mime === "text/markdown" || mime.startsWith("text/")) {
+      text = await extractTextFile(file);
+    } else {
+      // Unknown type — try as plain text rather than hard-failing.
+      text = await extractTextFile(file);
+    }
+    out.push({
+      section: file.section || null,
+      filename: file.filename || "document",
+      mimeType: mime || "application/octet-stream",
+      text: (text || "").trim(),
+    });
+  }
+  return out;
+}
+
+// Format extracted files into a single text blob for the structuring LLM,
+// tagged by section + filename so the model can attribute fields correctly.
+function filesToOcrText(perFile) {
+  const blocks = perFile.map((f) => {
+    const tag = f.section ? `[Section: ${f.section}] ` : "";
+    return `----- ${tag}File: ${f.filename} (${f.mimeType}) -----\n${f.text}`;
+  });
+  return blocks.join("\n\n");
+}
+
+// Backwards-compat shim: original single-image callers can still call this.
+async function ocrImages(imagesB64) {
+  const files = (imagesB64 || []).filter(Boolean).map((b64, i) => {
+    const { mimeType } = splitDataUrl(b64);
+    return { filename: `image-${i + 1}`, mimeType, content: b64 };
+  });
+  const perFile = await extractFiles(files);
+  return filesToOcrText(perFile);
+}
+
+module.exports = { ocrImages, extractFiles, filesToOcrText, isConfigured };

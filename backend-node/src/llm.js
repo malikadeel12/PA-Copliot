@@ -45,27 +45,33 @@ function logUsage(stage, resp) {
   });
 }
 
-// 1) Google Document AI OCRs the uploaded documents → raw text.
+// 1) Google Document AI OCRs images/PDFs; .docx/.txt are parsed locally.
+//    All results are merged into a single section-tagged text blob.
 // 2) Claude structures that text into the extraction JSON schema.
-async function extractDocuments(imagesB64) {
-  if (!imagesB64 || imagesB64.length === 0) throw new Error("No images provided");
-  let ocrText;
+async function extractDocuments(files) {
+  if (!files || files.length === 0) throw new Error("No files provided");
+  let perFile;
   try {
-    ocrText = await docai.ocrImages(imagesB64);
+    perFile = await docai.extractFiles(files);
   } catch (error) {
     console.error("Document AI stage failed:", error.message, error.cause?.code || "");
     throw error;
   }
-  // Blur/unclear guard: too little readable text means the photo is unusable.
+  const ocrText = docai.filesToOcrText(perFile);
+  // Blur/unclear guard: too little readable text means the upload is unusable.
   if (!ocrText || ocrText.replace(/[^A-Za-z0-9]/g, "").length < 25) {
     const err = new Error("Unclear document: insufficient readable text");
     err.code = "UNCLEAR";
     throw err;
   }
   const userText =
-    "OCR TEXT extracted from the prior-authorization documents (patient ID, insurance card, clinical/order doc):\n\n" +
+    "OCR / parsed TEXT extracted from the prior-authorization documents " +
+    "(patient ID, insurance card, clinical/order doc; multiple files per section are allowed):\n\n" +
     ocrText +
-    "\n\nStructure this into the required JSON. Return JSON only.";
+    "\n\nStructure this into the required JSON. When the same field appears in " +
+    "multiple files, prefer the most authoritative source " +
+    "(insurance card for member/plan; clinical doc for diagnoses/prescriber). " +
+    "Return JSON only.";
   let resp;
   try {
     resp = await client().messages.create({

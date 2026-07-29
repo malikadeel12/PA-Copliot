@@ -32,10 +32,13 @@ export default function Profile() {
     }
   };
 
-  const field = (key, label, placeholder) => (
+  const field = (key, label, placeholder, required = false) => (
     <div>
-      <Label className="text-xs font-semibold uppercase tracking-wider text-stone-500">{label}</Label>
+      <Label className="text-xs font-semibold uppercase tracking-wider text-stone-500">
+        {label}{required && <span className="text-red-600"> *</span>}
+      </Label>
       <Input data-testid={`profile-${key}`} value={form[key]} placeholder={placeholder}
+        required={required}
         onChange={(e) => setForm({ ...form, [key]: e.target.value })} className="mt-1.5 h-11" />
     </div>
   );
@@ -61,13 +64,13 @@ export default function Profile() {
             <span className="text-[11px] font-bold uppercase tracking-[0.15em] text-stone-500">Identity & facility</span>
           </div>
           <div className="p-6 sm:p-8 space-y-5">
-          {field("name", "Full name", "Dr. Jane Smith, MD")}
+          {field("name", "Full name", "Dr. Jane Smith, MD", true)}
           <div className="grid sm:grid-cols-2 gap-5">
-            {field("npi", "NPI (10 digits)", "1234567890")}
-            {field("specialty", "Specialty / taxonomy", "Rheumatology")}
+            {field("npi", "NPI (10 digits)", "1234567890", true)}
+            {field("specialty", "Specialty / taxonomy", "Rheumatology", true)}
           </div>
-          {field("facility_name", "Facility name", "Riverside Clinic")}
-          {field("facility_address", "Facility address", "123 Main St, Austin, TX 78701")}
+          {field("facility_name", "Facility name", "Riverside Clinic", true)}
+          {field("facility_address", "Facility address", "123 Main St, Austin, TX 78701", true)}
           <div>
             <Label className="text-xs font-semibold uppercase tracking-wider text-stone-500">E-signature name</Label>
             <Input data-testid="profile-signature" value={form.signature_data_url}

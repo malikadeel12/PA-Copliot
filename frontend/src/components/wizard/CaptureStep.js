@@ -8,7 +8,7 @@ import DocumentImageEditor from "@/components/wizard/DocumentImageEditor";
 import { toast } from "sonner";
 import {
   Upload, X, ScanLine, Loader2, ArrowRight, Maximize2, RefreshCw, Keyboard,
-  IdCard, CreditCard, FileText, CheckCircle2, Crop,
+  IdCard, CreditCard, FileText, CheckCircle2, Crop, Plus, File as FileIcon, Image as ImageIcon,
 } from "lucide-react";
 
 const SLOTS = [
@@ -16,6 +16,14 @@ const SLOTS = [
   { key: "insurance", icon: CreditCard, title: "Insurance card", aspect: 1.586, hint: "Front (and back). Retained as eligibility proof." },
   { key: "clinical", icon: FileText, title: "Clinical / order doc", aspect: 0.75, hint: "Progress note + script/order. Signed clinical evidence." },
 ];
+
+// Mobile (camera) input: images only.
+// Desktop: images + PDF + Word + Plain Text. PDFs/DOCX/TXT skip the crop editor.
+function buildAcceptAttr() {
+  const isMobile = typeof window !== "undefined" && /Mobi|Android|iPhone|iPad/i.test(window.navigator.userAgent || "");
+  if (isMobile) return "image/*";
+  return "image/*,application/pdf,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.docx,application/msword,.doc,text/plain,.txt";
+}
 
 const MANUAL_FIELDS = [
   { key: "PatientName", label: "Patient name", group: "PatientInformation", placeholder: "Jane A. Doe" },
@@ -40,8 +48,33 @@ function readAsDataURL(file) {
   });
 }
 
+function isImageMime(mime) {
+  return typeof mime === "string" && mime.startsWith("image/");
+}
+
+function isDocMime(mime) {
+  if (!mime) return false;
+  return (
+    mime === "application/pdf" ||
+    mime === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+    mime === "application/msword" ||
+    mime === "text/plain" ||
+    mime.startsWith("text/")
+  );
+}
+
+function fileBadge(mime) {
+  if (!mime) return { label: "FILE", Icon: FileIcon };
+  if (mime === "application/pdf") return { label: "PDF", Icon: FileIcon };
+  if (mime.includes("word") || mime.includes("msword")) return { label: "DOCX", Icon: FileIcon };
+  if (mime.startsWith("text/")) return { label: "TXT", Icon: FileIcon };
+  if (mime.startsWith("image/")) return { label: "IMG", Icon: ImageIcon };
+  return { label: "FILE", Icon: FileIcon };
+}
+
 export default function CaptureStep({ state, patch, onNext }) {
-  const [images, setImages] = useState({ id: null, insurance: null, clinical: null });
+  // Each slot now holds an array of file objects: { id, name, mime, kind: "image"|"doc", src?, content? }
+  const [slotFiles, setSlotFiles] = useState({ id: [], insurance: [], clinical: [] });
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState(null);
   const [editor, setEditor] = useState(null);
@@ -50,25 +83,71 @@ export default function CaptureStep({ state, patch, onNext }) {
   const [manual, setManual] = useState({});
   const inputs = useRef({});
 
-  const pick = async (key, file) => {
+  const totalFiles = Object.values(slotFiles).reduce((s, arr) => s + arr.length, 0);
+
+  const addFileToSlot = async (key, file) => {
     if (!file) return;
-    if (!/^image\//.test(file.type)) { toast.error("Please upload an image (JPEG/PNG)."); return; }
-    const dataUrl = await readAsDataURL(file);
-    const slot = SLOTS.find((item) => item.key === key);
-    setEditor({ key, src: dataUrl, title: slot?.title || "document", aspect: slot?.aspect || 0.75 });
+    const mime = file.type || "";
+    if (!isImageMime(mime) && !isDocMime(mime)) {
+      toast.error("Unsupported file type. Use images, PDF, DOCX, or TXT.");
+      return;
+    }
+    const id = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    if (isImageMime(mime)) {
+      const dataUrl = await readAsDataURL(file);
+      const slot = SLOTS.find((s) => s.key === key);
+      setEditor({ key, slotKey: key, id, src: dataUrl, title: slot?.title || "document", aspect: slot?.aspect || 0.75 });
+      return;
+    }
+    // Non-image: read as data URL, store content, no editor.
+    const content = await readAsDataURL(file);
+    setSlotFiles((current) => ({
+      ...current,
+      [key]: [...current[key], { id, name: file.name || "document", mime, kind: "doc", content }],
+    }));
+    toast.success(`Added ${file.name || "document"}`);
+  };
+
+  const removeFromSlot = (key, fileId) => {
+    setSlotFiles((current) => ({
+      ...current,
+      [key]: current[key].filter((f) => f.id !== fileId),
+    }));
   };
 
   const extractedPreview = state.extractedData;
-  const captured = Object.values(images).filter(Boolean).length;
+  const captured = totalFiles;
 
   const analyze = async () => {
-    const list = [images.id, images.insurance, images.clinical].filter(Boolean);
-    if (list.length === 0) { toast.error("Add at least one document."); return; }
+    if (totalFiles === 0) { toast.error("Add at least one document."); return; }
+    // Build the multi-file payload: every file carries its slot/section so the
+    // backend can tag OCR blocks appropriately.
+    const files = [];
+    for (const slot of SLOTS) {
+      for (const f of slotFiles[slot.key]) {
+        if (f.kind === "image") {
+          // Image went through the crop editor and was stored in f.src.
+          files.push({
+            section: slot.key,
+            filename: f.name || `${slot.key}.jpg`,
+            mimeType: f.mime || "image/jpeg",
+            content: f.src,
+          });
+        } else {
+          files.push({
+            section: slot.key,
+            filename: f.name,
+            mimeType: f.mime,
+            content: f.content,
+          });
+        }
+      }
+    }
     setBusy(true);
     try {
-      const { data } = await api.post("/pa/capture", { images: list });
+      const { data } = await api.post("/pa/capture", { files });
       patch({ requestId: data.request_id, extractedData: data.extracted_data });
-      toast.success("Documents read successfully");
+      toast.success(`${files.length} document${files.length === 1 ? "" : "s"} read successfully`);
     } catch (e) {
       const msg = formatApiError(e.response?.data?.detail);
       if (e.response?.data?.error_code === "UNCLEAR") {
@@ -78,7 +157,7 @@ export default function CaptureStep({ state, patch, onNext }) {
           setManualMode(true);
           toast.error("We still couldn't read the document after 3 attempts. Please enter the details manually below.");
         } else {
-          toast.error(`This document is unclear or unreadable. Please upload a clearer photo and try again. (Attempt ${n} of 3)`);
+          toast.error(`This document is unclear or unreadable. Please upload a clearer copy and try again. (Attempt ${n} of 3)`);
         }
       } else {
         toast.error(msg);
@@ -114,20 +193,24 @@ export default function CaptureStep({ state, patch, onNext }) {
   return (
     <div className="animate-fade-in-up">
       <span className="text-xs font-semibold uppercase tracking-[0.15em] text-emerald-700">Step 1 · Capture</span>
-      <h1 className="mt-2 font-heading text-3xl sm:text-4xl font-semibold tracking-tight text-stone-900">Snap the three documents</h1>
-      <p className="mt-2 text-stone-500 max-w-xl">Upload or photograph each document. The whole page fits in the frame — tap a document to view it full-size. Our vision AI reads the fields; nothing is stored after this session.</p>
+      <h1 className="mt-2 font-heading text-3xl sm:text-4xl font-semibold tracking-tight text-stone-900">Add the documents</h1>
+      <p className="mt-2 text-stone-500 max-w-xl">Upload one or more files per section. On desktop you can also drop in PDFs, Word documents, or plain-text files. Our vision AI reads the fields; nothing is stored after this session.</p>
 
-      <div className="mt-8 grid sm:grid-cols-3 gap-4">
+      <div data-jump-focus="capture-rescan" className="mt-8 grid sm:grid-cols-3 gap-4">
         {SLOTS.map((slot) => {
-          const img = images[slot.key];
+          const list = slotFiles[slot.key];
           return (
             <div key={slot.key} className="relative">
               <input
                 ref={(el) => (inputs.current[slot.key] = el)}
                 data-testid={`capture-input-${slot.key}`}
-                type="file" accept="image/*" capture="environment" className="hidden"
+                type="file"
+                accept={buildAcceptAttr()}
+                multiple
+                className="hidden"
                 onChange={(e) => {
-                  pick(slot.key, e.target.files?.[0]);
+                  const fileList = Array.from(e.target.files || []);
+                  fileList.forEach((f) => addFileToSlot(slot.key, f));
                   e.target.value = "";
                 }}
               />
@@ -135,54 +218,86 @@ export default function CaptureStep({ state, patch, onNext }) {
                 role="button"
                 tabIndex={0}
                 data-testid={`capture-slot-${slot.key}`}
-                onClick={() => (img ? setPreview({ src: img, title: slot.title }) : inputs.current[slot.key]?.click())}
-                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); img ? setPreview({ src: img, title: slot.title }) : inputs.current[slot.key]?.click(); } }}
-                className={`relative w-full aspect-[3/4] rounded-lg overflow-hidden border-2 flex flex-col items-center justify-center text-center p-4 transition-all cursor-pointer
-                  ${img ? "border-emerald-500 bg-stone-100" : "border-dashed border-stone-300 bg-white hover:border-emerald-400 hover:bg-stone-50"}`}
+                onClick={() => inputs.current[slot.key]?.click()}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); inputs.current[slot.key]?.click(); } }}
+                className={`relative w-full aspect-[3/4] rounded-lg overflow-hidden border-2 flex flex-col items-center justify-start text-center p-4 transition-all cursor-pointer
+                  ${list.length ? "border-emerald-500 bg-stone-100" : "border-dashed border-stone-300 bg-white hover:border-emerald-400 hover:bg-stone-50"}`}
               >
-                {img ? (
-                  <>
-                    <img src={img} alt={slot.title} className="absolute inset-0 w-full h-full object-contain" />
-                    <div className="absolute top-2 right-2 flex gap-1.5">
-                      <span className="bg-white rounded-full p-0.5 shadow"><CheckCircle2 className="w-5 h-5 text-emerald-600" /></span>
-                    </div>
-                    <button
-                      data-testid={`capture-expand-${slot.key}`}
-                      onClick={(e) => { e.stopPropagation(); setPreview({ src: img, title: slot.title }); }}
-                      className="absolute bottom-2 right-2 bg-white/90 rounded-full p-1.5 shadow hover:bg-white" title="View full size"
-                    ><Maximize2 className="w-4 h-4 text-stone-700" /></button>
-                    <button
-                      data-testid={`capture-replace-${slot.key}`}
-                      onClick={(e) => { e.stopPropagation(); inputs.current[slot.key]?.click(); }}
-                      className="absolute bottom-2 left-2 bg-white/90 rounded-full p-1.5 shadow hover:bg-white" title="Replace"
-                    ><RefreshCw className="w-4 h-4 text-stone-700" /></button>
-                    <button
-                      data-testid={`capture-edit-${slot.key}`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setEditor({ key: slot.key, src: img, title: slot.title, aspect: slot.aspect });
-                      }}
-                      className="absolute bottom-2 left-1/2 -translate-x-1/2 bg-white/90 rounded-full p-1.5 shadow hover:bg-white"
-                      title="Crop and adjust"
-                    ><Crop className="w-4 h-4 text-stone-700" /></button>
-                    <button
-                      data-testid={`capture-remove-${slot.key}`}
-                      onClick={(e) => { e.stopPropagation(); setImages((s) => ({ ...s, [slot.key]: null })); }}
-                      className="absolute top-2 left-2 bg-white/90 rounded-full p-1 shadow hover:bg-white"
-                    ><X className="w-4 h-4 text-stone-700" /></button>
-                  </>
-                ) : (
-                  <>
-                    <span className="absolute top-3 left-3 w-4 h-4 border-l-2 border-t-2 border-stone-300" />
-                    <span className="absolute top-3 right-3 w-4 h-4 border-r-2 border-t-2 border-stone-300" />
-                    <span className="absolute bottom-3 left-3 w-4 h-4 border-l-2 border-b-2 border-stone-300" />
-                    <span className="absolute bottom-3 right-3 w-4 h-4 border-r-2 border-b-2 border-stone-300" />
-                    <div className="w-11 h-11 rounded-md border border-stone-200 bg-white flex items-center justify-center"><slot.icon className="w-5 h-5 text-emerald-800" /></div>
-                    <span className="mt-3 font-heading font-semibold text-stone-800 text-sm">{slot.title}</span>
-                    <span className="mt-1 text-[11px] text-stone-400 leading-snug">{slot.hint}</span>
-                    <span className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700"><Upload className="w-3.5 h-3.5" /> Upload / snap</span>
-                  </>
+                <div className="absolute top-3 left-3 w-4 h-4 border-l-2 border-t-2 border-stone-300" />
+                <div className="absolute top-3 right-3 w-4 h-4 border-r-2 border-t-2 border-stone-300" />
+                <div className="absolute bottom-3 left-3 w-4 h-4 border-l-2 border-b-2 border-stone-300" />
+                <div className="absolute bottom-3 right-3 w-4 h-4 border-r-2 border-b-2 border-stone-300" />
+
+                <div className="w-11 h-11 rounded-md border border-stone-200 bg-white flex items-center justify-center mt-1"><slot.icon className="w-5 h-5 text-emerald-800" /></div>
+                <span className="mt-3 font-heading font-semibold text-stone-800 text-sm">{slot.title}</span>
+                <span className="mt-1 text-[11px] text-stone-400 leading-snug">{slot.hint}</span>
+
+                {list.length > 0 && (
+                  <div className="mt-3 w-full space-y-1.5 overflow-y-auto max-h-[40%]">
+                    {list.map((f, idx) => {
+                      const previewSrc = f.kind === "image" ? f.src : null;
+                      const { label, Icon } = fileBadge(f.mime);
+                      return (
+                        <div
+                          key={f.id}
+                          className="flex items-center gap-2 bg-white rounded-md border border-stone-200 px-2 py-1.5 text-left"
+                          data-testid={`capture-file-${slot.key}-${idx}`}
+                        >
+                          {previewSrc ? (
+                            <button
+                              type="button"
+                              data-testid={`capture-expand-${slot.key}-${idx}`}
+                              onClick={(e) => { e.stopPropagation(); setPreview({ src: previewSrc, title: `${slot.title} — ${f.name}` }); }}
+                              className="w-9 h-9 rounded bg-stone-100 overflow-hidden flex-none border border-stone-200"
+                              title="View"
+                            >
+                              <img src={previewSrc} alt={f.name} className="w-full h-full object-cover" />
+                            </button>
+                          ) : (
+                            <div className="w-9 h-9 rounded bg-stone-100 flex-none border border-stone-200 flex items-center justify-center">
+                              <Icon className="w-4 h-4 text-stone-600" />
+                            </div>
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <div className="text-[11px] font-semibold uppercase tracking-wider text-emerald-700">{label}</div>
+                            <div className="text-xs text-stone-700 truncate" title={f.name}>{f.name}</div>
+                          </div>
+                          {previewSrc && (
+                            <button
+                              type="button"
+                              data-testid={`capture-edit-${slot.key}-${idx}`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEditor({ key: slot.key, slotKey: slot.key, id: f.id, src: previewSrc, title: slot.title, aspect: slot.aspect });
+                              }}
+                              className="p-1 rounded hover:bg-stone-100"
+                              title="Crop"
+                            >
+                              <Crop className="w-3.5 h-3.5 text-stone-600" />
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            data-testid={`capture-remove-${slot.key}-${idx}`}
+                            onClick={(e) => { e.stopPropagation(); removeFromSlot(slot.key, f.id); }}
+                            className="p-1 rounded hover:bg-stone-100"
+                            title="Remove"
+                          >
+                            <X className="w-3.5 h-3.5 text-stone-600" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
                 )}
+
+                <div className="mt-auto pt-3 w-full flex items-center justify-center gap-1.5 text-xs font-medium text-emerald-700">
+                  {list.length ? (
+                    <><Plus className="w-3.5 h-3.5" /> Add more</>
+                  ) : (
+                    <><Upload className="w-3.5 h-3.5" /> Upload / snap</>
+                  )}
+                </div>
               </div>
             </div>
           );
@@ -194,7 +309,7 @@ export default function CaptureStep({ state, patch, onNext }) {
           <div className="flex items-center gap-2 text-emerald-700"><CheckCircle2 className="w-5 h-5" /><span className="font-heading font-semibold">Extracted data</span></div>
           <ExtractedGrid data={extractedPreview} />
           <div className="mt-6 flex justify-end gap-3">
-            <Button data-testid="capture-reextract-btn" variant="outline" onClick={() => { patch({ extractedData: null, requestId: null }); setManualMode(false); setAttempts(0); }} className="h-11 rounded-xl border-stone-300">Re-scan</Button>
+            <Button data-testid="capture-reextract-btn" variant="outline" onClick={() => { patch({ extractedData: null, requestId: null }); setSlotFiles({ id: [], insurance: [], clinical: [] }); setManualMode(false); setAttempts(0); }} className="h-11 rounded-xl border-stone-300">Re-scan</Button>
             <Button data-testid="capture-next-btn" onClick={onNext} className="h-11 px-6 bg-emerald-900 hover:bg-emerald-800 text-white font-semibold rounded-md border border-emerald-950 transition-colors">
               Continue to dictation <ArrowRight className="w-4 h-4 ml-2" />
             </Button>
@@ -224,7 +339,7 @@ export default function CaptureStep({ state, patch, onNext }) {
       ) : (
         <div className="mt-8 flex items-center justify-between gap-4 flex-wrap">
           <span className="text-sm text-stone-500">
-            {captured} of 3 documents added{attempts > 0 ? ` · attempt ${attempts} of 3` : ""}
+            {captured} file{captured === 1 ? "" : "s"} added across 3 sections{attempts > 0 ? ` · attempt ${attempts} of 3` : ""}
           </span>
           <Button data-testid="capture-analyze-btn" onClick={analyze} disabled={busy || captured === 0}
             className="h-12 px-6 bg-emerald-900 hover:bg-emerald-800 text-white font-semibold rounded-md border border-emerald-950 transition-colors">
@@ -248,7 +363,14 @@ export default function CaptureStep({ state, patch, onNext }) {
         aspect={editor?.aspect}
         onCancel={() => setEditor(null)}
         onApply={(adjustedImage) => {
-          setImages((current) => ({ ...current, [editor.key]: adjustedImage }));
+          if (!editor) return;
+          // Update the existing image entry in place, preserving its id.
+          setSlotFiles((current) => ({
+            ...current,
+            [editor.slotKey]: current[editor.slotKey].map((f) =>
+              f.id === editor.id ? { ...f, src: adjustedImage, mime: "image/jpeg", kind: "image", name: f.name || "cropped.jpg" } : f
+            ),
+          }));
           setEditor(null);
           toast.success("Document crop saved");
         }}

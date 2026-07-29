@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { Activity, X, Check } from "lucide-react";
@@ -33,6 +33,38 @@ export default function Wizard() {
     await refreshUser();
     navigate("/dashboard");
   };
+
+  // Jump back to a previous step from the Package panel so the user can fix
+  // the suggested field, then re-run analysis. Unlike `exitWizard` this does
+  // NOT purge the in-memory session — the user is still iterating on the
+  // same PA request.
+  const jumpToStep = (stepIndex, focusKey) => {
+    setStep(stepIndex);
+    setState((s) => ({ ...s, result: null })); // clear stale result; they'll re-run
+    pendingFocus.current = focusKey || null;
+  };
+
+  // After a step re-renders following a jump, scroll + focus the matching
+  // control (or just the top of the step as a graceful fallback).
+  const pendingFocus = useRef(null);
+  useEffect(() => {
+    const key = pendingFocus.current;
+    pendingFocus.current = null;
+    if (!key) return;
+    // Wait for the step to mount + its data to load.
+    const tryFocus = (tries = 12) => {
+      const node = document.querySelector(`[data-jump-focus="${key}"]`);
+      if (node) {
+        node.scrollIntoView({ behavior: "smooth", block: "center" });
+        if (typeof node.focus === "function") {
+          try { node.focus({ preventScroll: true }); } catch { /* not all elements accept focus */ }
+        }
+      } else if (tries > 0) {
+        setTimeout(() => tryFocus(tries - 1), 80);
+      }
+    };
+    setTimeout(() => tryFocus(), 60);
+  }, [step]);
 
   return (
     <div className="min-h-screen bg-stone-50 flex flex-col">
@@ -69,7 +101,7 @@ export default function Wizard() {
         {step === 0 && <CaptureStep state={state} patch={patch} onNext={() => setStep(1)} />}
         {step === 1 && <DictationStep state={state} patch={patch} onBack={() => setStep(0)} onNext={() => setStep(2)} />}
         {step === 2 && <ValidateStep state={state} patch={patch} onBack={() => setStep(1)} onNext={() => setStep(3)} refreshUser={refreshUser} />}
-        {step === 3 && <ResultsStep state={state} onExit={exitWizard} />}
+        {step === 3 && <ResultsStep state={state} patch={patch} onExit={exitWizard} onJumpToStep={jumpToStep} />}
       </main>
 
       <footer className="no-print border-t border-stone-200 bg-white py-4">

@@ -11,6 +11,7 @@ import Dashboard from "@/pages/Dashboard";
 import Profile from "@/pages/Profile";
 import BuyCredits from "@/pages/BuyCredits";
 import Wizard from "@/pages/Wizard";
+import Onboarding from "@/pages/Onboarding";
 // DEMO MODE DISABLED — preserved for possible future client demos:
 // import DemoWizard from "@/pages/DemoWizard";
 import AdminDashboard from "@/pages/AdminDashboard";
@@ -27,6 +28,9 @@ function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
   if (loading) return <Spinner />;
   if (!user) return <Navigate to="/login" replace />;
+  // Mandatory prescriber onboarding — every authenticated user must complete
+  // their prescriber profile before gaining access to any protected surface.
+  if (!user.profile_complete) return <Navigate to="/onboarding" replace />;
   return children;
 }
 
@@ -38,12 +42,25 @@ function AdminRoute({ children }) {
   return children;
 }
 
+// Authenticated users land here for prescriber onboarding; once profile_complete
+// is true they're redirected onward to the dashboard.
+function ProtectedOnboarding({ children }) {
+  const { user, loading } = useAuth();
+  if (loading) return <Spinner />;
+  if (!user) return <Navigate to="/login" replace />;
+  if (user.profile_complete) {
+    return <Navigate to={user.role === "admin" ? "/admin" : "/dashboard"} replace />;
+  }
+  return children;
+}
+
 function AppRouter() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/auth/callback" element={<AuthCallback />} />
       <Route path="/reset-password" element={<ResetPassword />} />
+      <Route path="/onboarding" element={<ProtectedOnboarding><Onboarding /></ProtectedOnboarding>} />
       <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
       <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
       <Route path="/buy-credits" element={<ProtectedRoute><BuyCredits /></ProtectedRoute>} />
