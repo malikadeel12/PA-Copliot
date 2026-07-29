@@ -96,6 +96,13 @@ export default function CaptureStep({ state, patch, onNext }) {
     if (isImageMime(mime)) {
       const dataUrl = await readAsDataURL(file);
       const slot = SLOTS.find((s) => s.key === key);
+      // Insert a placeholder entry first so the editor's `onApply` callback
+      // can find it by id and replace its `src`. Without this, fresh image
+      // uploads were silently dropped (the map() had no matching id).
+      setSlotFiles((current) => ({
+        ...current,
+        [key]: [...current[key], { id, name: file.name || "image.jpg", mime, kind: "image", src: dataUrl, pending: true }],
+      }));
       setEditor({ key, slotKey: key, id, src: dataUrl, title: slot?.title || "document", aspect: slot?.aspect || 0.75 });
       return;
     }
@@ -361,14 +368,25 @@ export default function CaptureStep({ state, patch, onNext }) {
         src={editor?.src}
         title={editor?.title}
         aspect={editor?.aspect}
-        onCancel={() => setEditor(null)}
+        onCancel={() => {
+          if (editor) {
+            // If the user cancelled a fresh upload, drop the pending placeholder
+            // we inserted in addFileToSlot so it doesn't linger as an empty entry.
+            setSlotFiles((current) => ({
+              ...current,
+              [editor.slotKey]: current[editor.slotKey].filter((f) => !(f.id === editor.id && f.pending)),
+            }));
+          }
+          setEditor(null);
+        }}
         onApply={(adjustedImage) => {
           if (!editor) return;
-          // Update the existing image entry in place, preserving its id.
+          // Update the existing image entry in place, preserving its id and
+          // clearing the pending flag now that the doctor confirmed the crop.
           setSlotFiles((current) => ({
             ...current,
             [editor.slotKey]: current[editor.slotKey].map((f) =>
-              f.id === editor.id ? { ...f, src: adjustedImage, mime: "image/jpeg", kind: "image", name: f.name || "cropped.jpg" } : f
+              f.id === editor.id ? { ...f, src: adjustedImage, mime: "image/jpeg", kind: "image", name: f.name || "cropped.jpg", pending: false } : f
             ),
           }));
           setEditor(null);
