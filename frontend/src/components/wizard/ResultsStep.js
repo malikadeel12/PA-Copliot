@@ -117,11 +117,21 @@ export default function ResultsStep({ state, patch, onExit, onJumpToStep }) {
 
   // Clicking a "Fix / Edit Step" button jumps back to the relevant step
   // (without purging the session) and focuses the offending field. If the
-  // target_field is unrecognized we fall back to the closest reasonable step.
+  // target_field is unrecognized we fall back to Step 3 (Validate) — the
+  // generic landing spot where the user can manually pick what to fix.
   const jumpToSuggestion = (s) => {
-    const target = resolveJumpTarget(s?.target_field) || resolveJumpTarget("validate");
-    if (!onJumpToStep || !target) return;
-    toast.info(`Jumping back to ${getStepLabel(target.step)} — ${target.focus === "capture-rescan" ? "re-scan or re-enter" : "edit the suggested field"}, then re-run analysis.`);
+    let target = resolveJumpTarget(s?.target_field);
+    let fellBack = false;
+    if (!target) {
+      // Hard fallback to the Validate step so the button is never a no-op.
+      target = { step: 2, focus: "validate-crosswalk", stepLabel: getStepLabel(2) };
+      fellBack = true;
+    }
+    if (!onJumpToStep) return;
+    const hint = fellBack
+      ? `Jumping back to ${target.stepLabel} — pick the field you want to edit, then re-run analysis.`
+      : `Jumping back to ${target.stepLabel} — ${target.focus === "capture-rescan" ? "re-scan or re-enter" : "edit the suggested field"}, then re-run analysis.`;
+    toast.info(hint);
     onJumpToStep(target.step, target.focus);
   };
 
