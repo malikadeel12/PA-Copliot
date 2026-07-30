@@ -22,9 +22,9 @@ export default function Login() {
   useEffect(() => {
     if (user) {
       // Authenticated users without a complete prescriber profile are routed
-      // to mandatory onboarding regardless of role.
+      // to mandatory onboarding.
       if (!user.profile_complete) navigate("/onboarding", { replace: true });
-      else navigate(user.role === "admin" ? "/admin" : "/dashboard", { replace: true });
+      else navigate("/dashboard", { replace: true });
     }
   }, [user, navigate]);
 
@@ -81,7 +81,7 @@ export default function Login() {
         const profile = await refreshUser();
         toast.success("Welcome back");
         if (!profile?.profile_complete) navigate("/onboarding", { replace: true });
-        else navigate(profile?.role === "admin" ? "/admin" : "/dashboard", { replace: true });
+        else navigate("/dashboard", { replace: true });
       } else {
       const { data, error } = await supabase.auth.signUp({
           email: form.email,
@@ -96,7 +96,7 @@ export default function Login() {
           const profile = await refreshUser();
           toast.success("Account created — 10 free credits added");
           if (!profile?.profile_complete) navigate("/onboarding", { replace: true });
-          else navigate(profile?.role === "admin" ? "/admin" : "/dashboard", { replace: true });
+          else navigate("/dashboard", { replace: true });
         } else {
           toast.success(
             "Account created. We sent a verification link to " + form.email + ". Confirm it to activate your 10 free credits.",
@@ -115,7 +115,13 @@ export default function Login() {
   const googleLogin = async () => {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo: window.location.origin + "/auth/callback" },
+      options: {
+        redirectTo: window.location.origin + "/auth/callback",
+        // Force the account chooser + permissions consent screen on every
+        // Google sign-in. Without this, Google silently re-authenticates the
+        // last account when the browser session already has one.
+        queryParams: { prompt: "select_account consent", access_type: "offline" },
+      },
     });
     if (error) toast.error(error.message);
   };

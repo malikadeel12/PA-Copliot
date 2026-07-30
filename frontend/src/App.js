@@ -14,7 +14,6 @@ import Wizard from "@/pages/Wizard";
 import Onboarding from "@/pages/Onboarding";
 // DEMO MODE DISABLED — preserved for possible future client demos:
 // import DemoWizard from "@/pages/DemoWizard";
-import AdminDashboard from "@/pages/AdminDashboard";
 
 function Spinner() {
   return (
@@ -34,23 +33,13 @@ function ProtectedRoute({ children }) {
   return children;
 }
 
-function AdminRoute({ children }) {
-  const { user, loading } = useAuth();
-  if (loading) return <Spinner />;
-  if (!user) return <Navigate to="/login" replace />;
-  if (user.role !== "admin") return <Navigate to="/dashboard" replace />;
-  return children;
-}
-
 // Authenticated users land here for prescriber onboarding; once profile_complete
 // is true they're redirected onward to the dashboard.
 function ProtectedOnboarding({ children }) {
   const { user, loading } = useAuth();
   if (loading) return <Spinner />;
   if (!user) return <Navigate to="/login" replace />;
-  if (user.profile_complete) {
-    return <Navigate to={user.role === "admin" ? "/admin" : "/dashboard"} replace />;
-  }
+  if (user.profile_complete) return <Navigate to="/dashboard" replace />;
   return children;
 }
 
@@ -67,7 +56,6 @@ function AppRouter() {
       <Route path="/new-request" element={<ProtectedRoute><Wizard /></ProtectedRoute>} />
       {/* Demo route disabled; DemoWizard.js remains preserved. */}
       {/* <Route path="/new-request" element={<ProtectedRoute><DemoWizard /></ProtectedRoute>} /> */}
-      <Route path="/admin" element={<AdminRoute><AdminDashboard /></AdminRoute>} />
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
   );

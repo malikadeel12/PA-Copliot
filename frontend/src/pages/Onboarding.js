@@ -44,7 +44,7 @@ export default function Onboarding() {
       const { data } = await api.put("/profile", form);
       setUser(data);
       toast.success("Profile saved — welcome to PA Copilot");
-      navigate(data.role === "admin" ? "/admin" : "/dashboard", { replace: true });
+      navigate("/dashboard", { replace: true });
     } catch (e) {
       toast.error(formatApiError(e.response?.data?.detail));
     } finally {

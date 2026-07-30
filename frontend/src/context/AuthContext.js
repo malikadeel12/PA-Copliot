@@ -19,8 +19,15 @@ export function AuthProvider({ children }) {
         setUser(data);
         return data;
       })
-      .catch(() => {
-        setUser(null);
+      .catch((err) => {
+        // Only treat a confirmed 401 as "not authenticated" — wipe the user.
+        // Transient errors (network, 5xx, missing Bearer on first OAuth load)
+        // must NOT clear the existing user state, or the next render will
+        // send an authenticated user back to /login.
+        const status = err?.response?.status;
+        if (status === 401 || status === 403) {
+          setUser(null);
+        }
         return null;
       })
       .finally(() => {

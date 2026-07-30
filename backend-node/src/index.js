@@ -5,7 +5,7 @@ const cors = require("cors");
 const crypto = require("crypto");
 
 const { adminClient } = require("./supabase");
-const { requireAuth, requireAdmin, publicUser, isEmailVerified } = require("./auth");
+const { requireAuth, publicUser, isEmailVerified } = require("./auth");
 const ruleEngine = require("./ruleEngine");
 const llm = require("./llm");
 const paStore = require("./paStore");
@@ -86,57 +86,17 @@ api.get("/stats", requireAuth, wrap(async (req, res) => {
 }));
 
 // ---------------------------------------------------------------------------
-// Admin
-// ---------------------------------------------------------------------------
-api.get("/admin/overview", requireAuth, requireAdmin, wrap(async (req, res) => {
-  const total_users = await countRows("profiles", {});
-  const total_admins = await countRows("profiles", { role: "admin" });
-  const total_analyses = await countRows("usage_events", { event_type: "pa_request_completed" });
-  const { data: purchases } = await adminClient.from("credit_transactions").select("amount").eq("type", "purchase");
-  const total_credits_purchased = (purchases || []).reduce((s, d) => s + (d.amount || 0), 0);
-  const { data: balances } = await adminClient.from("profiles").select("credits");
-  const total_credits_outstanding = (balances || []).reduce((s, d) => s + (d.credits || 0), 0);
-  const google_users = await countRows("profiles", { auth_provider: "google" });
-  res.json({
-    total_users, total_admins, total_physicians: total_users - total_admins,
-    google_users, total_analyses, total_credits_purchased, total_credits_outstanding,
-  });
-}));
-
-api.get("/admin/users", requireAuth, requireAdmin, wrap(async (req, res) => {
-  const { data: docs } = await adminClient.from("profiles").select("*").order("created_at", { ascending: false }).limit(500);
-  const users = [];
-  for (const d of docs || []) {
-    const analyses = await countRows("usage_events", { user_id: d.id, event_type: "pa_request_completed" });
-    users.push({
-      user_id: d.id, email: d.email, name: d.name ?? null, role: d.role || "physician",
-      auth_provider: d.auth_provider || "email", credits: d.credits || 0, analyses, created_at: d.created_at,
-    });
-  }
-  res.json({ users });
-}));
-
-api.post("/admin/users/:userId/grant-credits", requireAuth, requireAdmin, wrap(async (req, res) => {
-  const { userId } = req.params;
-  const amount = parseInt(req.body?.amount, 10);
-  if (!Number.isFinite(amount)) return res.status(422).json({ detail: "amount must be a number" });
-  const { data: target } = await adminClient.from("profiles").select("credits").eq("id", userId).maybeSingle();
-  if (!target) return res.status(404).json({ detail: "User not found" });
-  const newCredits = (target.credits || 0) + amount;
-  await adminClient.from("profiles").update({ credits: newCredits }).eq("id", userId);
-  await adminClient.from("credit_transactions").insert({ user_id: userId, type: "admin_grant", amount, granted_by: req.user.id });
-  res.json({ user_id: userId, credits: newCredits });
-}));
-
-// ---------------------------------------------------------------------------
 // Billing (mock credits)
 // ---------------------------------------------------------------------------
 api.post("/billing/mock-purchase", requireAuth, wrap(async (req, res) => {
-  const amount = CREDIT_PACKS[req.body?.pack];
+  // Normalize pack to a string — an array body would otherwise index CREDIT_PACKS
+  // with an array and silently produce undefined.
+  const packKey = typeof req.body?.pack === "string" ? req.body.pack : "";
+  const amount = CREDIT_PACKS[packKey];
   if (!amount) return res.status(400).json({ detail: "Unknown credit pack" });
   const newCredits = (req.user.credits || 0) + amount;
   await adminClient.from("profiles").update({ credits: newCredits }).eq("id", req.user.id);
-  await adminClient.from("credit_transactions").insert({ user_id: req.user.id, type: "purchase", amount, pack: req.body.pack });
+  await adminClient.from("credit_transactions").insert({ user_id: req.user.id, type: "purchase", amount, pack: packKey });
   const { data } = await adminClient.from("profiles").select("*").eq("id", req.user.id).single();
   res.json(publicUser(data));
 }));
@@ -149,6 +109,14 @@ api.get("/reference", wrap(async (req, res) => {
 }));
 
 api.post("/pa/capture", requireAuth, wrap(async (req, res) => {
+  // Reject mutually-exclusive inputs up front so callers can't silently drop
+  // a manual-data submission by also sending a files array (or vice versa).
+  const hasFiles = Array.isArray(req.body?.files) || Array.isArray(req.body?.images);
+  const hasManual = req.body?.manual_data && typeof req.body.manual_data === "object";
+  if (hasFiles && hasManual) {
+    return res.status(400).json({ detail: "Send either `files` (or legacy `images`) OR `manual_data`, not both." });
+  }
+
   // Accept either:
   //   - legacy: { images: ["data:image/jpeg;base64,..."] }  (single file per slot)
   //   - new:    { files: [{ section, filename, mimeType, content }, ...] }  (multi-file/multi-format)

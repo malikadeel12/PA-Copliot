@@ -58,7 +58,14 @@ export default function AuthCallback() {
         }
         if (!profile) throw new Error("Signed in, but the account profile could not be loaded. Please try again.");
 
-        if (active) navigate(profile.role === "admin" ? "/admin" : "/dashboard", { replace: true });
+        // Route by profile completeness FIRST so new OAuth users always land
+        // on onboarding regardless of how ProtectedRoute evaluates the
+        // freshly-loaded `user` state. Relying on ProtectedRoute alone leaves
+        // a race where the user briefly sees the dashboard.
+        if (active) {
+          if (!profile.profile_complete) navigate("/onboarding", { replace: true });
+          else navigate("/dashboard", { replace: true });
+        }
       } catch (error) {
         fail(error);
       }
