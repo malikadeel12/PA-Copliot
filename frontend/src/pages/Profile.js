@@ -1,13 +1,14 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import api, { formatApiError } from "@/lib/api";
+import { supabase } from "@/lib/supabase";
 import AppShell from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { ArrowLeft, Loader2, User2, Stethoscope } from "lucide-react";
+import { ArrowLeft, Loader2, User2, Stethoscope, KeyRound, Mail, Trash2, Link2 } from "lucide-react";
 
 export default function Profile() {
   const { user, setUser } = useAuth();
@@ -18,6 +19,26 @@ export default function Profile() {
     signature_data_url: user?.signature_data_url || "",
   });
   const [busy, setBusy] = useState(false);
+  // Linked sign-in identities (e.g. ["email", "google"]) — fetched from
+  // Supabase so the user can see which providers can reach their account
+  // and unlink the ones they don't want.
+  const [identities, setIdentities] = useState([]);
+  const [linking, setLinking] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const { data, error } = await supabase.auth.getUserIdentities();
+        if (!active || error) return;
+        setIdentities((data?.identities || []).map((i) => ({
+          id: i.identity_id || i.id,
+          provider: i.provider,
+        })));
+      } catch { /* unauthenticated — render nothing in this panel */ }
+    })();
+    return () => { active = false; };
+  }, [user]);
 
   const save = async () => {
     setBusy(true);
@@ -29,6 +50,34 @@ export default function Profile() {
       toast.error(formatApiError(e.response?.data?.detail));
     } finally {
       setBusy(false);
+    }
+  };
+
+  const linkGoogle = async () => {
+    setLinking(true);
+    try {
+      const { error } = await supabase.auth.linkIdentity({
+        provider: "google",
+        options: {
+          redirectTo: window.location.origin + "/profile",
+          queryParams: { prompt: "select_account consent", access_type: "offline" },
+        },
+      });
+      if (error) throw error;
+    } catch (e) {
+      toast.error(formatApiError(e?.message) || "Couldn't link Google right now.");
+      setLinking(false);
+    }
+  };
+
+  const unlinkIdentity = async (identity) => {
+    try {
+      const { error } = await supabase.auth.unlinkIdentity(identity);
+      if (error) throw error;
+      setIdentities((prev) => prev.filter((i) => i.id !== identity.id));
+      toast.success(`${identity.provider === "google" ? "Google" : identity.provider} sign-in removed from this account.`);
+    } catch (e) {
+      toast.error(e?.message || "Couldn't remove that sign-in method.");
     }
   };
 
@@ -85,6 +134,55 @@ export default function Profile() {
           </Button>
           </div>
         </div>
+
+        {identities.length > 0 && (
+          <div className="mt-6 rounded-lg bg-white border border-stone-300 shadow-sm overflow-hidden">
+            <div className="px-6 sm:px-8 py-3 border-b border-stone-200 bg-stone-50/70">
+              <span className="text-[11px] font-bold uppercase tracking-[0.15em] text-stone-500">Sign-in methods</span>
+            </div>
+            <div className="p-6 sm:p-8 space-y-4">
+              <p className="text-sm text-stone-600">
+                These are the ways you can sign in to <span className="font-mono">{user?.email}</span>.
+                Supabase automatically links new providers that use the same verified email —
+                sign in with Google and your existing email + password account will be unified.
+              </p>
+              <ul className="space-y-2">
+                {identities.map((id) => (
+                  <li key={id.id} data-testid={`signin-method-${id.provider}`}
+                    className="flex items-center justify-between gap-3 rounded-md border border-stone-200 bg-stone-50 px-4 py-3">
+                    <div className="flex items-center gap-3">
+                      {id.provider === "email"
+                        ? <Mail className="w-4 h-4 text-stone-600" />
+                        : id.provider === "google"
+                        ? <span className="w-4 h-4 inline-flex items-center justify-center font-bold text-xs text-stone-600">G</span>
+                        : <KeyRound className="w-4 h-4 text-stone-600" />}
+                      <div>
+                        <div className="text-sm font-medium text-stone-900 capitalize">{id.provider === "email" ? "Email + password" : id.provider}</div>
+                        <div className="text-xs text-stone-500">
+                          {id.provider === "email" ? "Sign in with your email and password." : `Sign in with your ${id.provider} account.`}
+                        </div>
+                      </div>
+                    </div>
+                    {identities.length > 1 && (
+                      <Button data-testid={`unlink-${id.provider}`} variant="ghost" size="sm"
+                        onClick={() => unlinkIdentity(id)}
+                        className="text-stone-500 hover:text-red-600">
+                        <Trash2 className="w-3.5 h-3.5 mr-1.5" /> Remove
+                      </Button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+              {!identities.some((i) => i.provider === "google") && (
+                <Button data-testid="link-google-btn" variant="outline" onClick={linkGoogle} disabled={linking}
+                  className="h-10 border-stone-300">
+                  {linking ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Link2 className="w-4 h-4 mr-2" />}
+                  Link Google account
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </AppShell>
   );

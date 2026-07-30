@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Loader2 } from "lucide-react";
+import { toast } from "sonner";
 import { supabase, exchangeCodeForSessionOnce } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
 
@@ -131,6 +132,22 @@ export default function AuthCallback() {
 
         // Stash cleared on success — the intent no longer needs to survive.
         try { sessionStorage.removeItem("pa-oauth-intent"); } catch { /* ignore */ }
+
+        // Identity-linking notice: if this sign-in just attached a new
+        // provider to an account that already had one, surface it so the
+        // user knows. Supabase's automatic linking means signing in with
+        // Google on an existing email+password account does NOT create a
+        // second account — it adds Google to the existing one.
+        try {
+          const { data: userData } = await supabase.auth.getUser();
+          const providers = (userData?.user?.identities || []).map((i) => i.provider).filter(Boolean);
+          if (providers.includes("google") && providers.includes("email")) {
+            toast.success(
+              "Signed in with Google. This sign-in method has been linked to your existing email + password account.",
+              { duration: 8000 }
+            );
+          }
+        } catch { /* identities unavailable — ignore */ }
 
         // If the user just confirmed their email, the profile was created
         // server-side but profile_complete is false (NPI / specialty / etc

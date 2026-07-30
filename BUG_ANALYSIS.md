@@ -350,6 +350,47 @@ The raw Supabase error code is `over_email_send_rate_limit` and message is `emai
 
 ---
 
+### Bug #10: Google sign-in for an existing email+password account "succeeds" — is that OK?
+
+**Symptom**
+User signs up with email + password → confirms email → uses PA-Copilot. Later, in a fresh browser session, they sign in with **Google** using the same email. **It succeeds** and they reach the dashboard as the same user. The user asks: "is this a bug?"
+
+**Root cause analysis**
+
+This is **Supabase's automatic identity linking** working as designed, not a bug:
+
+> "Supabase Auth automatically links identities with the same email address to a single user. This helps to improve the user experience when multiple OAuth login options are presented since the user does not need to remember which OAuth account they used to sign up with. When a new user signs in with OAuth, Supabase Auth will attempt to look for an existing user that uses the same email address. If a match is found, the new identity is linked to the user."  
+> — https://supabase.com/docs/guides/auth/auth-identity-linking
+
+**Security guarantees Supabase already provides:**
+- Only links if the existing email is **verified** (prevents pre-account-takeover)
+- Removes any **unconfirmed** identities on link
+- Industry-standard behavior (Auth0, Clerk, Firebase, Supabase all do this)
+
+**Why the user couldn't tell it was happening**
+
+The auto-link was completely silent — Google sign-in just worked without telling the user "you now have two ways to sign in." This made it look like a bug.
+
+**Decision**
+
+Keep auto-link. The four alternative postures (block entirely / block-if-unverified / explicit prompt) were considered; the project owner confirmed auto-link is the desired behavior.
+
+**Improvements shipped (not a behavior change, just discoverability)**
+
+1. **`AuthCallback.js`**: After successful sign-in, fetch the user's identities and show a toast if multiple providers are linked: "Signed in with Google. This sign-in method has been linked to your existing email + password account."
+
+2. **`Profile.js`**: New **"Sign-in methods"** panel that:
+   - Lists every linked identity (email, google, etc.) via `supabase.auth.getUserIdentities()`
+   - Lets the user unlink any provider except the last one (Supabase requires ≥1)
+   - Offers a "Link Google account" button when Google is not yet linked, via `supabase.auth.linkIdentity({ provider: "google" })`
+   - Re-fetches identities after unlink/link
+
+**Verified**
+- Babel parse clean for both `AuthCallback.js` and `Profile.js`
+- `linkIdentity` and `unlinkIdentity` calls match Supabase JS SDK v2.x API
+
+---
+
 ## Part 2 — Backend Audit Findings (from full-codebase audit)
 
 ### CRITICAL (4)
