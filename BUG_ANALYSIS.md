@@ -218,6 +218,41 @@ The "Continue with Google" button on the Login page always behaves the same way 
 
 ---
 
+### Bug #7: Email verification link fails silently — user never receives confirmation
+
+**Symptom**
+User signs up with email + password → sees toast "We sent a verification link to your email. Confirm it to activate your 10 free credits" → never receives the email. Even when they do (or in spam), clicking the link produces "The sign-in callback is missing or has expired." instead of completing signup.
+
+**Root cause analysis**
+
+This is a multi-cause bug spanning client code, client config, and Supabase project config:
+
+**Cause 1 (client code)**: `AuthCallback.js` only handled `?code=...` (PKCE OAuth flow). Supabase's current email-confirmation links use `?token_hash=...&type=signup|email|recovery` (per the modern Supabase template using `{{ .TokenHash }}`). The client must call `supabase.auth.verifyOtp({ token_hash, type })` — which the old code never did. The fallback path ("no code in URL") only called `getSession()` and produced "missing or has expired."
+
+**Cause 2 (client config)**: `supabase.js` set `detectSessionInUrl: false`. Combined with the bug above, even the implicit-flow variant (`#access_token=...` in the URL hash, used by older Supabase email templates) was ignored by the client. Setting this to `true` lets the client auto-detect session from hash and URL params, complementing the manual exchange.
+
+**Cause 3 (Supabase project config)**: Supabase's built-in SMTP service has **very low hourly rate limits** ("intended only for demonstration purposes"), and emails frequently land in spam. Production projects must configure a custom SMTP provider (SendGrid, Mailgun, Resend, etc.) in the Supabase dashboard under **Authentication → SMTP Settings**. Without custom SMTP, signup emails may never arrive at all.
+
+**Fix**
+
+1. `AuthCallback.js` now handles all three URL shapes that Supabase can redirect with:
+   - `?code=...` → existing PKCE exchange path (unchanged)
+   - `?token_hash=...&type=...` → new `supabase.auth.verifyOtp({ token_hash, type })` call
+   - (implicit hash) → handled by `detectSessionInUrl: true`
+2. `supabase.js`: `detectSessionInUrl: true` so the implicit-flow hash variant works automatically.
+3. `Login.js` adds a dedicated **"Check your email"** panel after a successful `signUp` with:
+   - The email address shown back to the user
+   - "Resend verification email" button calling `supabase.auth.resend({ type: "signup", email, options: { emailRedirectTo } })`
+   - "Back to sign in" button
+   - Helper text reminding about spam folder and rate limits
+4. Documentation note in this MD so anyone debugging "email not received" knows to check Supabase **Authentication → SMTP Settings**.
+
+**Verified**
+- All 3 changed files parse cleanly via Babel.
+- All four OAuth 4-case flows still pass.
+
+---
+
 ## Part 2 — Backend Audit Findings (from full-codebase audit)
 
 ### CRITICAL (4)

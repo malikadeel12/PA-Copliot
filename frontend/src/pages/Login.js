@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { TrustBadge } from "@/components/TrustBadge";
 import { toast } from "sonner";
-import { Activity, ShieldCheck, Clock, FileCheck2, Loader2 } from "lucide-react";
+import { ShieldCheck, Clock, FileCheck2, Loader2, Mail, RefreshCw } from "lucide-react";
 
 const AUTH_BG = "/login-hero.png";
 
@@ -18,6 +18,9 @@ export default function Login() {
   const [mode, setMode] = useState("login");
   const [form, setForm] = useState({ name: "", email: "", password: "" });
   const [busy, setBusy] = useState(false);
+  // After sign-up we move to this mode so the user has a clear "check your
+  // email + resend" UI. `pendingEmail` carries the email forward.
+  const [awaitingEmail, setAwaitingEmail] = useState(null);
 
   useEffect(() => {
     if (user) {
@@ -79,6 +82,31 @@ export default function Login() {
     }
   };
 
+  // Resend the verification email via the dedicated Supabase endpoint.
+  // The user must already have an unconfirmed account (created via signUp);
+  // this endpoint will simply no-op if the email is already confirmed or
+  // rate-limited.
+  const resendVerification = async () => {
+    if (!awaitingEmail) return;
+    setBusy(true);
+    try {
+      const { error } = await supabase.auth.resend({
+        type: "signup",
+        email: awaitingEmail,
+        options: {
+          emailRedirectTo: window.location.origin + "/auth/callback",
+        },
+      });
+      if (error) throw error;
+      toast.success("Verification email resent. Check your inbox (and spam folder).", { duration: 8000 });
+    } catch (err) {
+      const msg = err?.message || "Couldn't resend the verification email.";
+      toast.error(msg, { duration: 8000 });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const submit = async (e) => {
     e.preventDefault();
     setBusy(true);
@@ -106,11 +134,12 @@ export default function Login() {
           if (!profile?.profile_complete) navigate("/onboarding", { replace: true });
           else navigate("/dashboard", { replace: true });
         } else {
-          toast.success(
-            "Account created. We sent a verification link to " + form.email + ". Confirm it to activate your 10 free credits.",
-            { duration: 8000 }
-          );
-          setMode("login");
+          // No session means email verification is required. Move into
+          // the awaiting-verification UI so the user has a clear next step
+          // and a "Resend verification email" button — Supabase's default
+          // SMTP rate-limits and often lands in spam, so a resend is the
+          // primary recovery path for "I never got the email" complaints.
+          setAwaitingEmail(form.email);
         }
       }
     } catch (err) {
@@ -190,17 +219,54 @@ export default function Login() {
           </div>
 
           <h2 className="font-heading text-3xl font-semibold tracking-tight text-stone-900">
-            {mode === "login" ? "Sign in" : mode === "register" ? "Create your account" : "Reset your password"}
+            {awaitingEmail
+              ? "Check your email"
+              : mode === "login"
+              ? "Sign in"
+              : mode === "register"
+              ? "Create your account"
+              : "Reset your password"}
           </h2>
           <p className="mt-2 text-stone-500 text-sm">
-            {mode === "login"
+            {awaitingEmail
+              ? "We sent a verification link to your inbox."
+              : mode === "login"
               ? "Welcome back. Let's clear that queue."
               : mode === "register"
               ? "Start with 10 free analysis credits. Email verification required."
               : "Enter your email and we'll send you a reset link."}
           </p>
 
-          {mode === "forgot" ? (
+          {awaitingEmail ? (
+            <>
+              <div data-testid="awaiting-verification-panel" className="mt-6 rounded-lg bg-white border border-emerald-200 p-6 shadow-sm">
+                <div className="flex items-center gap-2 text-emerald-700">
+                  <Mail className="w-5 h-5" />
+                  <span className="font-heading font-semibold">Verification email sent</span>
+                </div>
+                <p className="mt-2 text-sm text-stone-600">
+                  We sent a link to <span className="font-mono font-semibold text-stone-900">{awaitingEmail}</span>.
+                  Open it to confirm your address and activate your 10 free credits.
+                </p>
+                <ul className="mt-4 space-y-1.5 text-xs text-stone-500 list-disc list-inside">
+                  <li>The email can take up to a minute to arrive.</li>
+                  <li>Check your spam / promotions folder if you don't see it.</li>
+                  <li>If it never arrives, your project may be on Supabase's default SMTP which has tight rate limits — click Resend below.</li>
+                </ul>
+                <div className="mt-5 flex flex-col sm:flex-row gap-2">
+                  <Button data-testid="resend-verification-btn" onClick={resendVerification} disabled={busy}
+                    className="h-11 px-5 bg-emerald-900 hover:bg-emerald-800 text-white font-semibold rounded-md border border-emerald-950">
+                    {busy ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-2" />}
+                    Resend verification email
+                  </Button>
+                  <Button data-testid="back-to-login-from-awaiting" variant="outline" onClick={() => { setAwaitingEmail(null); setMode("login"); }}
+                    className="h-11 px-5 border-stone-300">
+                    Back to sign in
+                  </Button>
+                </div>
+              </div>
+            </>
+          ) : mode === "forgot" ? (
             <>
               <form onSubmit={sendReset} className="mt-6 space-y-4">
                 <div>

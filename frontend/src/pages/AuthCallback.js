@@ -54,18 +54,41 @@ export default function AuthCallback() {
         const oauthError = params.get("error_description") || params.get("error");
         if (oauthError) throw new Error(oauthError);
 
+        // Three URL shapes can arrive here, depending on whether the user
+        // got here from a Supabase email-confirmation link or a Google OAuth
+        // PKCE redirect, and depending on which email template + Site URL
+        // the Supabase project is configured with:
+        //
+        //   1. ?code=...                  — PKCE OAuth or PKCE email redirect
+        //   2. ?token_hash=...&type=...   — custom email template using TokenHash
+        //   3. #access_token=...&...      — implicit-flow hash (older configs)
+        //
+        // detectSessionInUrl=true on the client also covers the hash case,
+        // but the others need an explicit exchange here.
         const code = params.get("code");
+        const tokenHash = params.get("token_hash");
+        const otpType = params.get("type");
+
         if (code) {
-          // A page reload can revisit the one-time callback URL after the
-          // exchange already succeeded. Reuse the persisted session instead
-          // of attempting to consume the PKCE code/verifier again.
+          // PKCE flow (OAuth or Supabase email redirect). Reuse the
+          // persisted session if a previous visit already exchanged the
+          // code — the PKCE verifier is single-use.
           const { data: existing, error: sessionError } = await supabase.auth.getSession();
           if (sessionError) throw sessionError;
           if (!existing.session) {
             const { error } = await exchangeCodeForSessionOnce(code);
             if (error) throw error;
           }
+        } else if (tokenHash && otpType) {
+          // Custom email template sent a TokenHash link. Exchange it via
+          // verifyOtp — this is the modern Supabase recommendation and the
+          // missing piece that was making email-confirmation links silently
+          // fail with "The sign-in callback is missing or has expired."
+          const { error } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type: otpType });
+          if (error) throw error;
         } else {
+          // No code, no token_hash — rely on detectSessionInUrl having
+          // already populated the session from the URL hash (implicit flow).
           const { data, error } = await supabase.auth.getSession();
           if (error) throw error;
           if (!data.session) throw new Error("The sign-in callback is missing or has expired.");
@@ -109,10 +132,10 @@ export default function AuthCallback() {
         // Stash cleared on success — the intent no longer needs to survive.
         try { sessionStorage.removeItem("pa-oauth-intent"); } catch { /* ignore */ }
 
-        // Route by profile completeness FIRST so any freshly-confirmed user
-        // (e.g. one whose profile was missing required fields) always lands
-        // on onboarding regardless of how ProtectedRoute evaluates the
-        // freshly-loaded `user` state.
+        // If the user just confirmed their email, the profile was created
+        // server-side but profile_complete is false (NPI / specialty / etc
+        // are still empty). Force them through onboarding so the credits
+        // granted on confirmation aren't stranded behind an empty profile.
         if (active) {
           if (!profile.profile_complete) navigate("/onboarding", { replace: true });
           else navigate("/dashboard", { replace: true });

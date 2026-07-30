@@ -14,7 +14,13 @@ export const supabase = createClient(url, key, {
   auth: {
     persistSession: true,
     autoRefreshToken: true,
-    detectSessionInUrl: false,
+    // detectSessionInUrl: true lets Supabase auto-detect the session from
+    // the URL hash when the user lands on /auth/callback from either:
+    //   1. A Supabase email-confirmation link (which embeds PKCE params or
+    //      hash fragments depending on template config), or
+    //   2. The Google OAuth PKCE redirect.
+    // The AuthCallback page still owns the post-exchange routing logic.
+    detectSessionInUrl: true,
     flowType: "pkce",
   },
 });
