@@ -181,6 +181,43 @@ A returning user who originally signed up with email/password, then later clicks
 
 ---
 
+### Bug #6: Register tab and Login tab share the same Google flow with no intent distinction
+
+**Symptom**
+The "Continue with Google" button on the Login page always behaves the same way regardless of which tab is active. New users clicking it from the Register tab have no special onboarding; users on the Login tab get the same behavior. There's no way for the user (or the backend) to distinguish "I want to create a new account" from "I want to sign into an existing one" via Google.
+
+**Required 4-case matrix**
+
+| Page | User status | Action | Expected result |
+|------|------------|--------|-----------------|
+| Register | Brand new (no profile) | Google | Select account → `/onboarding` → `/dashboard` |
+| Register | Existing profile | Google | "Account already created — please login" |
+| Login | Brand new | Google | "Please create account first" |
+| Login | Existing profile | Google | Login success → `/dashboard` |
+
+**Fix**
+
+1. `Login.js` writes `pa-oauth-intent` (signup or login) to `sessionStorage` before OAuth, and the Google button label switches: **"Sign up with Google"** in Register tab, **"Sign in with Google"** in Login tab.
+2. `api.js` axios interceptor reads the intent on every request and forwards it as the `X-OAuth-Intent` header.
+3. `backend-node/src/auth.js` `ensureProfile(user, intent)` implements the full 4-case matrix:
+   - By-id lookup → found: signup → ALREADY_CREATED, login → return profile.
+   - By-email lookup → found: signup → ALREADY_CREATED, login → return profile (covers the "email signup, later Google login" case).
+   - No profile anywhere: signup → create, login → SIGNUP_REQUIRED.
+4. `requireAuth` reads `X-OAuth-Intent` and translates `ALREADY_CREATED` and `SIGNUP_REQUIRED` to HTTP 403 with structured `error_code`.
+5. `AuthContext.loadProfile` re-throws both structured error codes so `AuthCallback` can route to the correct message.
+6. `AuthCallback` calls `supabase.auth.signOut()` for both error cases (the half-created session must not linger), then navigates to `/login?error_description=...&mode=login|register`.
+
+**Behavior now**
+
+| Flow | Button label | Result |
+|------|--------------|--------|
+| Click on Register, brand new | "Sign up with Google" | Select account → `/onboarding` → fill → `/dashboard` |
+| Click on Register, already has profile | "Sign up with Google" | Toast: "An account already exists for this Google account. Please sign in instead." → bounced to Login tab |
+| Click on Login, brand new | "Sign in with Google" | Toast: "Please sign up first before signing in with Google." → bounced to Register tab |
+| Click on Login, has profile | "Sign in with Google" | Sign-in succeeds → `/dashboard` |
+
+---
+
 ## Part 2 — Backend Audit Findings (from full-codebase audit)
 
 ### CRITICAL (4)

@@ -25,56 +25,94 @@ function isEmailVerified(user) {
   return Boolean(user.email_confirmed_at);
 }
 
-// Ensures a `profiles` row exists for the authenticated Supabase user.
-// For email signups, free credits are only granted once the email is verified
-// (Supabase sets `email_confirmed_at` after the confirmation link).
+// Ensures a `profiles` row exists for the authenticated Supabase user and
+// enforces the 4-case flow for OAuth sign-in:
 //
-// OAuth providers (Google etc.) are intentionally NOT allowed to silently
-// create a new profile: a brand-new OAuth user with no pre-existing
-// `profiles` row is rejected with `SIGNUP_REQUIRED` so the frontend can
-// show "please sign up first". This forces every new user to register via
-// email first (and confirm their address), giving us a verifiable owner
-// identity before any PHI-bearing flow begins.
-async function ensureProfile(user) {
-  const { data: existing } = await adminClient
-    .from("profiles").select("*").eq("id", user.id).maybeSingle();
-
+//   ┌─────────────┬─────────────────────────┬─────────────────────────────────┐
+//   │ Intent      │ Profile lookup result   │ Action                          │
+//   ├─────────────┼─────────────────────────┼─────────────────────────────────┤
+//   │ signup      │ exists (by id or email) │ reject — ALREADY_CREATED        │
+//   │ signup      │ missing                 │ create new profile              │
+//   │ login       │ exists (by id or email) │ return existing profile         │
+//   │ login       │ missing                 │ reject — SIGNUP_REQUIRED        │
+//   └─────────────┴─────────────────────────┴─────────────────────────────────┘
+//
+// The intent is supplied by the frontend via the X-OAuth-Intent header so
+// the backend can make this decision after the cross-origin OAuth redirect,
+// without depending on sessionStorage at request time.
+async function ensureProfile(user, intent = "login") {
   const provider = providerFromUser(user);
 
-  if (!existing) {
-    // For OAuth (Google etc.) we refuse to silently create a brand-new
-    // profile. The user must register via email first so we have a verified
-    // identity before any PHI-bearing flow begins. Returning a structured
-    // error lets the frontend show "please sign up first" instead of a
-    // generic failure.
-    if (provider !== "email") {
-      const err = new Error("OAuth sign-in requires a pre-existing account");
+  // Step 1 — look up by exact auth UUID. This is the fast path for any
+  // returning user whose profile was created against the same auth identity.
+  const { data: byId } = await adminClient
+    .from("profiles").select("*").eq("id", user.id).maybeSingle();
+
+  if (byId) {
+    if (intent === "signup") {
+      const err = new Error("Account already exists. Please log in instead.");
+      err.code = "ALREADY_CREATED";
+      throw err;
+    }
+    return applyCreditGrant(byId, user);
+  }
+
+  // Step 2 — fall back to a lookup by email. This covers the case where a
+  // returning user originally signed up via email (one auth.users UUID) and
+  // is now signing in with Google (different auth.users UUID, same email).
+  // The email is verified by Google so we can trust it matches the same
+  // person. Without this fallback the user would be told "please sign up
+  // first" on every Google sign-in.
+  if (user.email) {
+    const { data: byEmail } = await adminClient
+      .from("profiles").select("*").eq("email", user.email).maybeSingle();
+    if (byEmail) {
+      if (intent === "signup") {
+        const err = new Error("Account already exists. Please log in instead.");
+        err.code = "ALREADY_CREATED";
+        throw err;
+      }
+      return applyCreditGrant(byEmail, user);
+    }
+  }
+
+  // Step 3 — no profile by id OR email. Decide based on intent + provider.
+  if (provider !== "email") {
+    if (intent !== "signup") {
+      const err = new Error("No account found for this Google account. Please sign up first.");
       err.code = "SIGNUP_REQUIRED";
       throw err;
     }
+    // signup intent + OAuth provider → create the profile and let onboarding
+    // collect the prescriber-specific fields.
+    return createProfile(user, provider);
   }
 
-  if (existing) {
-    let next = existing;
-    // Lazy credit grant: if the profile was created before email verification
-    // and the user has now confirmed their email, give them the signup bonus.
-    const verified = isEmailVerified(user);
-    const alreadyGranted = (existing.credits || 0) > 0;
-    if (verified && !alreadyGranted) {
-      const newCredits = (existing.credits || 0) + SIGNUP_FREE_CREDITS;
-      const { data: credited } = await adminClient
-        .from("profiles").update({ credits: newCredits }).eq("id", user.id).select("*").single();
-      if (credited) next = credited;
-      await adminClient.from("credit_transactions").insert({
-        user_id: user.id, type: "signup_grant", amount: SIGNUP_FREE_CREDITS,
-      });
-    }
-    return next;
-  }
+  // Email signup (or returning email user) — create a new profile.
+  return createProfile(user, provider);
+}
 
+async function applyCreditGrant(profile, user) {
+  // Lazy credit grant: if the profile was created before email verification
+  // and the user has now confirmed their email, give them the signup bonus.
+  const verified = isEmailVerified(user);
+  const alreadyGranted = (profile.credits || 0) > 0;
+  if (verified && !alreadyGranted) {
+    const newCredits = (profile.credits || 0) + SIGNUP_FREE_CREDITS;
+    const { data: credited } = await adminClient
+      .from("profiles").update({ credits: newCredits }).eq("id", profile.id).select("*").single();
+    await adminClient.from("credit_transactions").insert({
+      user_id: profile.id, type: "signup_grant", amount: SIGNUP_FREE_CREDITS,
+    });
+    return credited || profile;
+  }
+  return profile;
+}
+
+async function createProfile(user, provider) {
   const meta = user.user_metadata || {};
   const verified = isEmailVerified(user);
-  // Email signups start with 0 credits until verification; verified email gets theirs.
+  // Email signups start with 0 credits until verification; verified email / OAuth get theirs.
   const initialCredits = verified ? SIGNUP_FREE_CREDITS : 0;
   const insert = {
     id: user.id,
@@ -112,13 +150,22 @@ async function requireAuth(req, res, next) {
   const { data, error } = await authClient.auth.getUser(token);
   if (error || !data?.user) return res.status(401).json({ detail: "Invalid or expired token" });
 
+  const intentRaw = (req.headers["x-oauth-intent"] || "login").toString().toLowerCase();
+  const intent = intentRaw === "signup" ? "signup" : "login";
+
   try {
-    req.user = await ensureProfile(data.user);
+    req.user = await ensureProfile(data.user, intent);
   } catch (e) {
     if (e.code === "SIGNUP_REQUIRED") {
       return res.status(403).json({
         detail: "No account found for this sign-in. Please sign up first.",
         error_code: "SIGNUP_REQUIRED",
+      });
+    }
+    if (e.code === "ALREADY_CREATED") {
+      return res.status(403).json({
+        detail: "An account already exists for this Google account. Please sign in instead.",
+        error_code: "ALREADY_CREATED",
       });
     }
     console.error("ensureProfile failed:", e.message);

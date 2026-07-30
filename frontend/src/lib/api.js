@@ -42,6 +42,13 @@ function tokenFromStorage() {
 api.interceptors.request.use((config) => {
   const token = accessToken || tokenFromStorage();
   if (token) config.headers.Authorization = `Bearer ${token}`;
+  // Forward the OAuth intent (signup | login) so the backend can decide
+  // whether to create a new profile or reject the request as already
+  // created. Read from sessionStorage on every request — it's written by
+  // Login.js immediately before the OAuth redirect.
+  let intent = "login";
+  try { intent = sessionStorage.getItem("pa-oauth-intent") || "login"; } catch { /* storage disabled */ }
+  config.headers["X-OAuth-Intent"] = intent;
   return config;
 });
 

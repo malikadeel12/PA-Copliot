@@ -121,6 +121,13 @@ export default function Login() {
   };
 
   const googleLogin = async () => {
+    // Stash the user's intent (signup vs login) so AuthCallback — which runs
+    // after the cross-origin OAuth redirect — knows which case the user is in
+    // and the backend can decide between "create new profile" and "load
+    // existing profile". sessionStorage survives the round-trip through
+    // accounts.google.com because it's bound to this origin.
+    const intent = mode === "register" ? "signup" : "login";
+    try { sessionStorage.setItem("pa-oauth-intent", intent); } catch { /* storage disabled — default to login */ }
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
@@ -271,7 +278,7 @@ export default function Login() {
           <Button data-testid="google-login-btn" variant="outline" onClick={googleLogin}
             className="w-full h-11 border-stone-300 font-semibold rounded-lg hover:bg-stone-50">
             <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="" className="w-4 h-4 mr-2" />
-            Continue with Google
+            {mode === "register" ? "Sign up with Google" : "Sign in with Google"}
           </Button>
           </>
           )}

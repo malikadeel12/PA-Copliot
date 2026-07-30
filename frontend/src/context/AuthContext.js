@@ -20,12 +20,13 @@ export function AuthProvider({ children }) {
         return data;
       })
       .catch((err) => {
-        // SIGNUP_REQUIRED is a special case: a brand-new OAuth user without a
-        // pre-existing profile row. Propagate the signal so AuthCallback can
-        // show "please sign up first" instead of a generic failure.
-        if (err?.response?.data?.error_code === "SIGNUP_REQUIRED") {
-          const e = new Error(err.response.data.detail || "Please sign up first.");
-          e.code = "SIGNUP_REQUIRED";
+        // SIGNUP_REQUIRED / ALREADY_CREATED are structured errors that the
+        // AuthCallback must handle explicitly — propagate them so callers
+        // can show tailored messages instead of a generic failure.
+        const code = err?.response?.data?.error_code;
+        if (code === "SIGNUP_REQUIRED" || code === "ALREADY_CREATED") {
+          const e = new Error(err.response.data.detail || "OAuth sign-in rejected.");
+          e.code = code;
           throw e;
         }
         // Only treat a confirmed 401 as "not authenticated" — wipe the user.

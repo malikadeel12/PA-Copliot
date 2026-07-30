@@ -29,9 +29,22 @@ export default function AuthCallback() {
       // Sign the user out immediately so they can't accidentally continue
       // with a half-created account, then bounce to /login with a friendly
       // message and pre-select the Register tab.
+      try { sessionStorage.removeItem("pa-oauth-intent"); } catch { /* ignore */ }
       supabase.auth.signOut().finally(() => {
         if (!active) return;
         navigate("/login?error_description=" + encodeURIComponent("Please sign up first before signing in with Google.") + "&mode=register", { replace: true });
+      });
+    };
+
+    const failAlreadyCreated = () => {
+      if (!active) return;
+      // User clicked "Sign up with Google" but a profile already exists for
+      // this Google identity (or matching email). Send them to the Login tab
+      // with a friendly hint.
+      try { sessionStorage.removeItem("pa-oauth-intent"); } catch { /* ignore */ }
+      supabase.auth.signOut().finally(() => {
+        if (!active) return;
+        navigate("/login?error_description=" + encodeURIComponent("An account already exists for this Google account. Please sign in instead.") + "&mode=login", { replace: true });
       });
     };
 
@@ -65,14 +78,23 @@ export default function AuthCallback() {
         // a valid Supabase login is not sent back to /login during a cold start.
         let profile = null;
         let signupRequired = false;
+        let alreadyCreated = false;
         for (let attempt = 0; attempt < 3 && !profile; attempt += 1) {
           try {
             profile = await refreshUser();
           } catch (e) {
             // Backend returns SIGNUP_REQUIRED when a brand-new OAuth user
-            // hits /auth/me and there's no pre-existing profile row.
+            // hits /auth/me with login intent and there's no pre-existing
+            // profile row.
             if (e?.response?.data?.error_code === "SIGNUP_REQUIRED" || e?.code === "SIGNUP_REQUIRED") {
               signupRequired = true;
+              break;
+            }
+            // Backend returns ALREADY_CREATED when a user with signup intent
+            // hits /auth/me but a profile already exists for this Google
+            // account / email.
+            if (e?.response?.data?.error_code === "ALREADY_CREATED" || e?.code === "ALREADY_CREATED") {
+              alreadyCreated = true;
               break;
             }
             throw e;
@@ -81,7 +103,11 @@ export default function AuthCallback() {
         }
 
         if (signupRequired) { failSignupRequired(); return; }
+        if (alreadyCreated) { failAlreadyCreated(); return; }
         if (!profile) throw new Error("Signed in, but the account profile could not be loaded. Please try again.");
+
+        // Stash cleared on success — the intent no longer needs to survive.
+        try { sessionStorage.removeItem("pa-oauth-intent"); } catch { /* ignore */ }
 
         // Route by profile completeness FIRST so any freshly-confirmed user
         // (e.g. one whose profile was missing required fields) always lands
