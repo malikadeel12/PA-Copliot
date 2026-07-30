@@ -28,14 +28,22 @@ export default function Login() {
     }
   }, [user, navigate]);
 
-  // Surface OAuth errors returned on the redirect (e.g. misconfigured Google client).
-  // Guard against React 18 StrictMode double-invocation clearing the URL before the toast renders.
+  // Surface OAuth errors returned on the redirect (e.g. misconfigured Google
+  // client, or "please sign up first" when a brand-new Google user attempts
+  // to log in). Guard against React 18 StrictMode double-invocation clearing
+  // the URL before the toast renders. Also honor `mode=register` so the
+  // SIGNUP_REQUIRED path lands the user on the Register tab with their email
+  // already filled in.
   const oauthErrShown = useRef(false);
   useEffect(() => {
     if (oauthErrShown.current) return;
     const q = new URLSearchParams(window.location.search);
     const h = new URLSearchParams(window.location.hash.replace(/^#/, ""));
     const err = q.get("error_description") || q.get("error") || h.get("error_description") || h.get("error");
+    const requestedMode = q.get("mode");
+    if (requestedMode === "register" || requestedMode === "login" || requestedMode === "forgot") {
+      setMode(requestedMode);
+    }
     if (err) {
       oauthErrShown.current = true;
       // Defer so the Toaster (a later sibling) has subscribed to sonner's store before we publish.

@@ -160,6 +160,27 @@ This is a product decision: PA Copilot is physician-only. Need to remove:
 
 ---
 
+### Bug #5: Google OAuth silently creates accounts for new users
+
+**Symptom**
+A brand-new user clicks "Continue with Google" on `/login`. Without ever signing up, they're authenticated and dropped into the app. This bypasses the intended flow where users must explicitly register (and confirm their email) before using the service.
+
+**Root cause analysis**
+Supabase OAuth auto-creates an `auth.users` row for any successful OAuth callback, regardless of whether the user pre-registered. The `ensureProfile` function in `backend-node/src/auth.js` then unconditionally created a corresponding `profiles` row for any authenticated user. **There's no check for "this OAuth user is brand new".**
+
+**Fix**
+
+1. `ensureProfile` now throws a structured `SIGNUP_REQUIRED` error when no `profiles` row exists AND the auth provider is not `email` (i.e. it's OAuth like Google).
+2. `requireAuth` translates that error to HTTP 403 with `{ error_code: "SIGNUP_REQUIRED" }`.
+3. `AuthContext.loadProfile` detects the 403 + `error_code` and re-throws with `code: "SIGNUP_REQUIRED"`.
+4. `AuthCallback` catches that, calls `supabase.auth.signOut()` to immediately kill the half-created session, and navigates to `/login?error_description=Please+sign+up+first...&mode=register`.
+5. `Login.js` honors `?mode=register` to auto-switch to the Register tab; the toast displays the friendly message.
+
+**Edge case not yet handled**
+A returning user who originally signed up with email/password, then later clicks "Continue with Google", will be blocked by this rule. This is because Supabase OAuth creates a brand-new `auth.users` row (different UUID, same email) — the existing `profiles` row (keyed by the email signup's UUID) is invisible to the new OAuth UUID. **Workaround for now**: returning users should sign in with their original email/password. Linking identities via "Sign in with Google later" requires a separate `supabase.auth.linkIdentity()` flow which is out of scope for this fix.
+
+---
+
 ## Part 2 — Backend Audit Findings (from full-codebase audit)
 
 ### CRITICAL (4)

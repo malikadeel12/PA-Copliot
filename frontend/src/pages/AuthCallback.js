@@ -23,6 +23,18 @@ export default function AuthCallback() {
       navigate(`/login?error_description=${encodeURIComponent(message)}`, { replace: true });
     };
 
+    const failSignupRequired = () => {
+      if (!active) return;
+      // Supabase already created an auth.users row for this OAuth attempt.
+      // Sign the user out immediately so they can't accidentally continue
+      // with a half-created account, then bounce to /login with a friendly
+      // message and pre-select the Register tab.
+      supabase.auth.signOut().finally(() => {
+        if (!active) return;
+        navigate("/login?error_description=" + encodeURIComponent("Please sign up first before signing in with Google.") + "&mode=register", { replace: true });
+      });
+    };
+
     const complete = async () => {
       try {
         const params = new URLSearchParams(window.location.search);
@@ -52,16 +64,29 @@ export default function AuthCallback() {
         // Render may be waking from an idle state. Retry profile hydration so
         // a valid Supabase login is not sent back to /login during a cold start.
         let profile = null;
+        let signupRequired = false;
         for (let attempt = 0; attempt < 3 && !profile; attempt += 1) {
-          profile = await refreshUser();
+          try {
+            profile = await refreshUser();
+          } catch (e) {
+            // Backend returns SIGNUP_REQUIRED when a brand-new OAuth user
+            // hits /auth/me and there's no pre-existing profile row.
+            if (e?.response?.data?.error_code === "SIGNUP_REQUIRED" || e?.code === "SIGNUP_REQUIRED") {
+              signupRequired = true;
+              break;
+            }
+            throw e;
+          }
           if (!profile && attempt < 2) await wait((attempt + 1) * 1000);
         }
+
+        if (signupRequired) { failSignupRequired(); return; }
         if (!profile) throw new Error("Signed in, but the account profile could not be loaded. Please try again.");
 
-        // Route by profile completeness FIRST so new OAuth users always land
+        // Route by profile completeness FIRST so any freshly-confirmed user
+        // (e.g. one whose profile was missing required fields) always lands
         // on onboarding regardless of how ProtectedRoute evaluates the
-        // freshly-loaded `user` state. Relying on ProtectedRoute alone leaves
-        // a race where the user briefly sees the dashboard.
+        // freshly-loaded `user` state.
         if (active) {
           if (!profile.profile_complete) navigate("/onboarding", { replace: true });
           else navigate("/dashboard", { replace: true });

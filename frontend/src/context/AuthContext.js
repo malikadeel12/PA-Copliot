@@ -20,6 +20,14 @@ export function AuthProvider({ children }) {
         return data;
       })
       .catch((err) => {
+        // SIGNUP_REQUIRED is a special case: a brand-new OAuth user without a
+        // pre-existing profile row. Propagate the signal so AuthCallback can
+        // show "please sign up first" instead of a generic failure.
+        if (err?.response?.data?.error_code === "SIGNUP_REQUIRED") {
+          const e = new Error(err.response.data.detail || "Please sign up first.");
+          e.code = "SIGNUP_REQUIRED";
+          throw e;
+        }
         // Only treat a confirmed 401 as "not authenticated" — wipe the user.
         // Transient errors (network, 5xx, missing Bearer on first OAuth load)
         // must NOT clear the existing user state, or the next render will
