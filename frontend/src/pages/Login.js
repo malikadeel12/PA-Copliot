@@ -12,6 +12,29 @@ import { ShieldCheck, Clock, FileCheck2, Loader2, Mail, RefreshCw } from "lucide
 
 const AUTH_BG = "/login-hero.png";
 
+// Detect Supabase email rate-limit errors and translate them into a
+// user-friendly message. The built-in SMTP defaults to 2 emails per hour
+// project-wide (see https://supabase.com/docs/guides/auth/rate-limits).
+// When the project uses custom SMTP the cap is configurable, but most
+// PA-Copilot users are still on the built-in provider. Without this
+// translation the user sees the raw error: "email rate limit exceeded".
+function isEmailRateLimit(err) {
+  const code = err?.code || err?.error_code || "";
+  if (code === "over_email_send_rate_limit" || code === "over_request_rate_limit") return true;
+  const msg = (err?.message || "").toLowerCase();
+  return msg.includes("email rate limit exceeded")
+      || msg.includes("rate limit")
+      || msg.includes("too many emails")
+      || msg.includes("too many requests");
+}
+
+function rateLimitHint() {
+  // The two relevant caps share the same recovery advice: wait an hour,
+  // or configure custom SMTP. Keep this short — sonner toasts truncate
+  // past ~200 chars on narrow viewports.
+  return "We've hit the hourly email rate limit (Supabase's built-in SMTP caps at ~2/hour). Please wait up to an hour and try again, or contact us to enable custom SMTP.";
+}
+
 export default function Login() {
   const { user, loading, refreshUser } = useAuth();
   const navigate = useNavigate();
@@ -100,8 +123,12 @@ export default function Login() {
       if (error) throw error;
       toast.success("Verification email resent. Check your inbox (and spam folder).", { duration: 8000 });
     } catch (err) {
-      const msg = err?.message || "Couldn't resend the verification email.";
-      toast.error(msg, { duration: 8000 });
+      if (isEmailRateLimit(err)) {
+        toast.error(rateLimitHint(), { duration: 12000 });
+      } else {
+        const msg = err?.message || "Couldn't resend the verification email.";
+        toast.error(msg, { duration: 8000 });
+      }
     } finally {
       setBusy(false);
     }
@@ -138,16 +165,13 @@ export default function Login() {
             setMode("login");
             return;
           }
-          // Account exists but email was never confirmed. Send a fresh
-          // verification link and route to the awaiting-verification UI.
-          try {
-            await supabase.auth.resend({
-              type: "signup",
-              email: form.email,
-              options: { emailRedirectTo: window.location.origin + "/auth/callback" },
-            });
-          } catch (_e) { /* best-effort — we still show the awaiting UI */ }
-          toast.success("This email was registered but never verified. We've sent a fresh verification link.", { duration: 8000 });
+          // Account exists but email was never confirmed. Don't auto-resend
+          // here — the Supabase built-in SMTP defaults to 2 emails per hour
+          // project-wide, so a user mashing the Create Account button can
+          // burn through both slots without receiving anything. Hand them
+          // the awaiting-verification UI which has an explicit Resend
+          // button they can choose to click.
+          toast.info("This email is already registered but not yet verified. Click \"Resend verification email\" below to send a new link.", { duration: 8000 });
           setAwaitingEmail(form.email);
           return;
         }
@@ -184,7 +208,11 @@ export default function Login() {
         }
       }
     } catch (err) {
-      toast.error(err?.message || formatApiError(err?.response?.data?.detail));
+      if (isEmailRateLimit(err)) {
+        toast.error(rateLimitHint(), { duration: 12000 });
+      } else {
+        toast.error(err?.message || formatApiError(err?.response?.data?.detail));
+      }
     } finally {
       setBusy(false);
     }

@@ -294,13 +294,59 @@ The `/auth/check-email` endpoint is anonymous but:
 **Verified**
 - Both backend (Node syntax-check) and frontend (Babel parse) compile cleanly.
 - Behavior matrix:
-  | Pre-check | signUp returns | UI outcome |
-  |---|---|---|
-  | exists + confirmed | n/a | "already exists, sign in" → login tab |
-  | exists + unconfirmed | n/a | "fresh verification link sent" → awaiting panel |
-  | !exists | session | "account created — 10 credits" → onboarding |
-  | !exists | obfuscated (race) | "already exists" → login tab |
-  | !exists | no session | "check your email" → awaiting panel |
+| Pre-check | signUp returns | UI outcome |
+|---|---|---|
+| exists + confirmed | n/a | "already exists, sign in" → login tab |
+| exists + unconfirmed | n/a | "fresh verification link sent" → awaiting panel |
+| !exists | session | "account created — 10 credits" → onboarding |
+| !exists | obfuscated (race) | "already exists" → login tab |
+| !exists | no session | "check your email" → awaiting panel |
+
+---
+
+### Bug #9: "email rate limit exceeded" appears during signup with no actionable guidance
+
+**Symptom**
+User registers with email + password and gets a toast saying **"email rate limit exceeded"**. The error is opaque — no retry guidance, no indication of cause, and (in some cases) the user never actually receives a verification email at all.
+
+**Root cause analysis**
+
+This is a **Supabase platform configuration limit**, not a code bug. From https://supabase.com/docs/guides/auth/rate-limits:
+
+| Operation | Path | Default cap |
+|---|---|---|
+| Email-triggering endpoints (signup / recover / user-update) | `/auth/v1/signup`, `/auth/v1/recover`, `/auth/v1/user` | **2 emails per hour project-wide** with built-in SMTP |
+| Signup confirmation | `/auth/v1/signup` | 60-second per-user cooldown |
+| Password reset | `/auth/v1/recover` | 60-second per-user cooldown |
+
+The PA-Copilot project is still on **Supabase's built-in SMTP** (the project owner has not configured a custom provider like SendGrid/Mailgun/Resend). That means **2 emails/hour project-wide** is the absolute ceiling.
+
+**Why the user hits it during normal testing**
+
+| Action | Cumulative emails sent |
+|---|---|
+| First signup with `email@x.com` | 1 |
+| Second signup (Bug #8 fix now catches duplicates, but first time was before the fix) | 2 |
+| Click "Create Account" again → auto-resend fires | 3 → **HTTP 429** |
+| Password reset test | 4 → **429** |
+
+The raw Supabase error code is `over_email_send_rate_limit` and message is `email rate limit exceeded`. The bug isn't the rate limit itself — it's that:
+1. **The toast is unhelpful** — just dumps the raw server string.
+2. **Bug #8's "exists+unconfirmed" branch was auto-resending**, burning through quota whenever the user re-tried the same email.
+3. **There's no recovery guidance** — users don't know they can wait an hour, configure custom SMTP, or use the explicit Resend button.
+
+**Fix**
+
+1. **`Login.js` `submit()` duplicate-unconfirmed branch**: removed the auto-resend. Now shows "click Resend verification email below" and routes to the awaiting-verification UI. The user only burns an email slot when they explicitly click Resend.
+2. **`Login.js` adds `isEmailRateLimit()` + `rateLimitHint()` helpers** at the top of the file that detect any of:
+   - `error.code === "over_email_send_rate_limit"` or `"over_request_rate_limit"`
+   - message contains "email rate limit exceeded", "rate limit", "too many emails", "too many requests"
+3. **`resendVerification()` and the `submit()` catch block** now translate the rate-limit error into: *"We've hit the hourly email rate limit (Supabase's built-in SMTP caps at ~2/hour). Please wait up to an hour and try again, or contact us to enable custom SMTP."* with a 12-second duration.
+4. **Action item for the project owner** (documented in this MD): configure a custom SMTP provider in **Supabase Dashboard → Authentication → SMTP Settings** to lift the cap. Recommended providers: Resend (simplest), SendGrid, AWS SES, Mailgun.
+
+**Verified**
+- Babel parse clean.
+- All three rate-limit error paths (signup, resend, future OAuth flows) route through the same translator.
 
 ---
 
