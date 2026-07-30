@@ -253,6 +253,57 @@ This is a multi-cause bug spanning client code, client config, and Supabase proj
 
 ---
 
+### Bug #8: Re-registering an existing email says "verification email sent" instead of "account already exists"
+
+**Symptom**
+A user signs up with `email@example.com` → gets the verification email → confirms it → completes onboarding → reaches the dashboard. Later, on a fresh session, they fill in the **Register** tab with the same email + password and click Create Account. The UI shows the **"Check your email"** panel (just like a brand-new signup) and claims a verification email was sent — but **no email is sent** because the account already exists.
+
+**Root cause analysis**
+
+Supabase's `signUp()` is intentionally silent on duplicate email when **"Enable email confirmations"** is on (the default for new projects). It returns:
+
+```js
+{ data: { user: <obfuscated fake user>, session: null }, error: null }
+```
+
+This is a deliberate enumeration-attack mitigation: an attacker cannot tell from the response whether an account exists. But it also means our client code — which only branches on `error` and `data.session` — cannot distinguish "new user, verification email sent" from "existing user, no email sent". The `awaitingEmail` panel renders in both cases.
+
+**Fix**
+
+Two complementary changes:
+
+1. **Backend `POST /auth/check-email`** (anonymous, rate-limited at 5 reqs/min per IP)
+   - Uses `adminClient.auth.admin.listUsers({ perPage: 1000 })` paginating locally
+   - Returns `{ exists: boolean, email_confirmed_at: string|null, providers: string[] }`
+   - Validates email format, lowercases for comparison
+
+2. **Frontend `Login.js` `submit()` register branch**
+   - Pre-checks via the new endpoint **before** calling `supabase.auth.signUp`
+   - If `exists && email_confirmed_at`: toast "An account with this email already exists. Please sign in instead." → switch to login mode
+   - If `exists && !email_confirmed_at`: send a fresh verification email via `supabase.auth.resend()` and show the awaiting-verification UI
+   - If `!exists`: proceed with `signUp` as before
+
+3. **Race-safe fallback**: Even with the pre-check, a concurrent signup can race. After `signUp` returns, we inspect `data.user.identities` — the obfuscated fake user has `identities: []` while a real new user has at least one identity entry. If empty, treat the same as the confirmed-exists branch.
+
+**Why we accept the enumeration risk**
+The `/auth/check-email` endpoint is anonymous but:
+- Rate-limited to 5 reqs/min per IP (sliding window) — insufficient for bulk enumeration
+- Email-format validation prevents trivial probes
+- Returning `email_confirmed_at` is intentionally informational: it lets the user with a real problem (already-registered email) recover with one click instead of being stuck in a UI that promises an email that will never arrive
+
+**Verified**
+- Both backend (Node syntax-check) and frontend (Babel parse) compile cleanly.
+- Behavior matrix:
+  | Pre-check | signUp returns | UI outcome |
+  |---|---|---|
+  | exists + confirmed | n/a | "already exists, sign in" → login tab |
+  | exists + unconfirmed | n/a | "fresh verification link sent" → awaiting panel |
+  | !exists | session | "account created — 10 credits" → onboarding |
+  | !exists | obfuscated (race) | "already exists" → login tab |
+  | !exists | no session | "check your email" → awaiting panel |
+
+---
+
 ## Part 2 — Backend Audit Findings (from full-codebase audit)
 
 ### CRITICAL (4)

@@ -49,6 +49,68 @@ async function countRows(table, filter) {
 // ---------------------------------------------------------------------------
 // Identity  (sign-up / sign-in / Google OAuth are handled client-side by supabase-js)
 // ---------------------------------------------------------------------------
+
+// Naive per-IP rate limiter for the anonymous /auth/check-email endpoint.
+// Without this an attacker could enumerate which emails are registered by
+// timing the response. 5 reqs/min per IP is more than enough for the intended
+// use (signup form checking one email) and stops casual enumeration.
+const _checkEmailHits = new Map();
+function checkEmailRateLimit(req, res, next) {
+  const ip = req.headers["x-forwarded-for"]?.toString().split(",")[0].trim() || req.ip || "unknown";
+  const now = Date.now();
+  const windowStart = now - 60_000;
+  const hits = (_checkEmailHits.get(ip) || []).filter((t) => t > windowStart);
+  if (hits.length >= 5) return res.status(429).json({ detail: "Too many checks. Please try again shortly." });
+  hits.push(now);
+  _checkEmailHits.set(ip, hits);
+  // Drop stale entries so the map doesn't grow unbounded.
+  if (_checkEmailHits.size > 5000) {
+    for (const [k, v] of _checkEmailHits) if (!v.some((t) => t > windowStart)) _checkEmailHits.delete(k);
+  }
+  next();
+}
+
+// Anonymous existence check for a given email. Supabase's `signUp` is the
+// authoritative source of truth but, with "Enable email confirmations" on,
+// GoTrue silently swallows the duplicate signup and returns an obfuscated
+// fake user (user exists, no session) to prevent enumeration. That breaks
+// our own UI — we can't tell whether the verification email was actually
+// sent or the user already has an account. This endpoint uses the admin
+// API to look up the email up-front so the frontend can route correctly.
+api.post("/auth/check-email", checkEmailRateLimit, wrap(async (req, res) => {
+  const raw = req.body?.email;
+  const email = typeof raw === "string" ? raw.trim().toLowerCase() : "";
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(400).json({ detail: "A valid email is required." });
+  }
+  // listUsers only supports pagination — page through and filter locally.
+  // Per page of 1000 is large enough that a typical physician app will
+  // fit in one round-trip; the loop handles the rare overflow case.
+  let page = 1;
+  const perPage = 1000;
+  let match = null;
+  while (page <= 20) {  // hard cap at 20 pages to avoid infinite pagination
+    const { data, error } = await adminClient.auth.admin.listUsers({ page, perPage });
+    if (error) {
+      console.error("listUsers failed:", error.message);
+      return res.status(500).json({ detail: "Could not check email availability." });
+    }
+    const users = (data && data.users) || [];
+    match = users.find((u) => (u.email || "").toLowerCase() === email);
+    if (match) break;
+    if (users.length < perPage) break;  // last page
+    page += 1;
+  }
+  if (!match) {
+    return res.json({ exists: false, email_confirmed_at: null });
+  }
+  res.json({
+    exists: true,
+    email_confirmed_at: match.email_confirmed_at || null,
+    providers: (match.identities || []).map((i) => i.provider).filter(Boolean),
+  });
+}));
+
 api.get("/auth/me", requireAuth, (req, res) => {
   const u = publicUser(req.user);
   u.email_verified = isEmailVerified(req.user);

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
-import { formatApiError } from "@/lib/api";
+import api, { formatApiError } from "@/lib/api";
 import { passwordRecoveryClient, supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -119,7 +119,39 @@ export default function Login() {
         if (!profile?.profile_complete) navigate("/onboarding", { replace: true });
         else navigate("/dashboard", { replace: true });
       } else {
-      const { data, error } = await supabase.auth.signUp({
+        // Supabase's `signUp` is intentionally silent on duplicate email
+        // (with "Enable email confirmations" on it returns an obfuscated
+        // fake user + null session, no error). That broke our UX: we
+        // showed "verification email sent" when no email was actually
+        // sent. Pre-check via the backend so we can route duplicates
+        // correctly before calling signUp.
+        let existing = null;
+        try {
+          const resp = await api.post("/auth/check-email", { email: form.email });
+          if (resp?.data?.exists) existing = resp.data;
+        } catch (_e) {
+          // Network or 5xx — fall through to the race-safe detection below.
+        }
+        if (existing) {
+          if (existing.email_confirmed_at) {
+            toast.error("An account with this email already exists. Please sign in instead.", { duration: 8000 });
+            setMode("login");
+            return;
+          }
+          // Account exists but email was never confirmed. Send a fresh
+          // verification link and route to the awaiting-verification UI.
+          try {
+            await supabase.auth.resend({
+              type: "signup",
+              email: form.email,
+              options: { emailRedirectTo: window.location.origin + "/auth/callback" },
+            });
+          } catch (_e) { /* best-effort — we still show the awaiting UI */ }
+          toast.success("This email was registered but never verified. We've sent a fresh verification link.", { duration: 8000 });
+          setAwaitingEmail(form.email);
+          return;
+        }
+        const { data, error } = await supabase.auth.signUp({
           email: form.email,
           password: form.password,
           options: {
@@ -128,6 +160,15 @@ export default function Login() {
           },
         });
         if (error) throw error;
+        // Race-safe fallback: if the pre-check missed a concurrent signup,
+        // Supabase will hand back an obfuscated user (identities array empty,
+        // no session). Detect that and bounce to the duplicate path.
+        const obfuscated = data?.user && (!data.user.identities || data.user.identities.length === 0);
+        if (obfuscated) {
+          toast.error("An account with this email already exists. Please sign in instead.", { duration: 8000 });
+          setMode("login");
+          return;
+        }
         if (data.session) {
           const profile = await refreshUser();
           toast.success("Account created — 10 free credits added");
