@@ -71,9 +71,7 @@ if (config.enableHealthCheck) {
 
 let webpackConfig = {
   babel: {
-    plugins: [
-      "@babel/plugin-transform-classes",
-    ],
+    plugins: [],
   },
   eslint: {
     configure: {
@@ -90,36 +88,25 @@ let webpackConfig = {
     },
     configure: (webpackConfig) => {
 
-      // Find the oneOf rule that contains babel-loader
       const oneOfRule = webpackConfig.module.rules.find(
         (rule) => rule.oneOf
       );
 
       if (oneOfRule) {
-        // Find the babel-loader rule inside oneOf
-        const babelLoaderRule = oneOfRule.oneOf.find(
-          (rule) =>
-            rule.use &&
-            rule.use.loader &&
-            rule.use.loader.includes("babel-loader")
-        );
-
-        if (babelLoaderRule) {
-          // Ensure include is an array
-          const includes = Array.isArray(babelLoaderRule.include)
-            ? babelLoaderRule.include
-            : babelLoaderRule.include
-              ? [babelLoaderRule.include]
-              : [];
-
-          // Add node_modules packages that need transpilation
-          includes.push(
+        // Insert a new rule at the TOP of oneOf to transpile problematic packages
+        oneOfRule.oneOf.unshift({
+          test: /\.(js|mjs|jsx|ts|tsx)$/,
+          include: [
             path.resolve(__dirname, "node_modules/@radix-ui"),
-            path.resolve(__dirname, "node_modules/docx")
-          );
-
-          babelLoaderRule.include = includes;
-        }
+            path.resolve(__dirname, "node_modules/docx"),
+          ],
+          loader: require.resolve("babel-loader"),
+          options: {
+            presets: [require.resolve("babel-preset-react-app")],
+            plugins: ["@babel/plugin-transform-classes"],
+            compact: true,
+          },
+        });
       }
 
       // Add ignored patterns to reduce watched directories
