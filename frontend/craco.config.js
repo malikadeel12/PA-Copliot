@@ -71,12 +71,8 @@ if (config.enableHealthCheck) {
 
 let webpackConfig = {
   babel: {
-    plugins: [
-      ["@babel/plugin-transform-classes", { loose: true }],
-      ["@babel/plugin-transform-class-properties", { loose: true }],
-      ["@babel/plugin-transform-private-property-in-object", { loose: true }],
-      ["@babel/plugin-transform-private-methods", { loose: true }],
-    ],
+    presets: [],
+    plugins: [],
   },
   eslint: {
     configure: {
@@ -92,6 +88,38 @@ let webpackConfig = {
       '@': path.resolve(__dirname, 'src'),
     },
     configure: (webpackConfig) => {
+
+      // Find the oneOf rule that contains babel-loader
+      const oneOfRule = webpackConfig.module.rules.find(
+        (rule) => rule.oneOf
+      );
+
+      if (oneOfRule) {
+        // Find the babel-loader rule inside oneOf
+        const babelLoaderRule = oneOfRule.oneOf.find(
+          (rule) =>
+            rule.use &&
+            rule.use.loader &&
+            rule.use.loader.includes("babel-loader")
+        );
+
+        if (babelLoaderRule) {
+          // Ensure include is an array
+          const includes = Array.isArray(babelLoaderRule.include)
+            ? babelLoaderRule.include
+            : babelLoaderRule.include
+              ? [babelLoaderRule.include]
+              : [];
+
+          // Add node_modules packages that need transpilation
+          includes.push(
+            path.resolve(__dirname, "node_modules/@radix-ui"),
+            path.resolve(__dirname, "node_modules/docx")
+          );
+
+          babelLoaderRule.include = includes;
+        }
+      }
 
       // Add ignored patterns to reduce watched directories
         webpackConfig.watchOptions = {
