@@ -70,6 +70,9 @@ if (config.enableHealthCheck) {
 }
 
 let webpackConfig = {
+  babel: {
+    plugins: ["@babel/plugin-transform-classes"],
+  },
   eslint: {
     configure: {
       extends: ["plugin:react-hooks/recommended"],
