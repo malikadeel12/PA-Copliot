@@ -90,25 +90,36 @@ let webpackConfig = {
       );
 
       if (oneOfRule) {
-        // Add a new rule at the very beginning of oneOf to handle
-        // @radix-ui and docx packages that ship modern ESM with
-        // private class fields and super() in arrow functions
+        // --- Transpile modern node_modules for CRA ---
+        // Changed: include class-properties / private-field plugins (not only transform-classes).
+        // Why: @radix-ui/react-collection ships private fields (#keys). Using
+        // @babel/plugin-transform-classes alone throws "Missing class properties transform"
+        // on Vercel/CRA builds. MCP context 7: transpile selected deps explicitly.
+        // Related: package.json Babel 7 plugin deps; frontend Vercel production build.
         oneOfRule.oneOf.unshift({
-          test: /\.(js|mjs)$/,
-          include: /node_modules\/(@radix-ui|docx)/,
+          test: /\.(js|mjs|cjs)$/,
+          include: [
+            path.resolve(__dirname, "node_modules/@radix-ui"),
+            path.resolve(__dirname, "node_modules/docx"),
+          ],
           loader: require.resolve("babel-loader"),
           options: {
             babelrc: false,
             configFile: false,
             compact: false,
+            // CRA's dependency preset (safer for node_modules than full react-app preset)
             presets: [
               [
-                require.resolve("babel-preset-react-app"),
+                require.resolve("babel-preset-react-app/dependencies"),
                 { helpers: true },
               ],
             ],
+            // Private class fields (#keys) + private methods must be present before/with classes
             plugins: [
-              "@babel/plugin-transform-classes",
+              require.resolve("@babel/plugin-transform-class-properties"),
+              require.resolve("@babel/plugin-transform-private-methods"),
+              require.resolve("@babel/plugin-transform-private-property-in-object"),
+              require.resolve("@babel/plugin-transform-classes"),
             ],
             cacheDirectory: true,
             cacheCompression: false,
