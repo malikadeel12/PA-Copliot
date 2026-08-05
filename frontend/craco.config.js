@@ -70,9 +70,6 @@ if (config.enableHealthCheck) {
 }
 
 let webpackConfig = {
-  babel: {
-    plugins: [],
-  },
   eslint: {
     configure: {
       extends: ["plugin:react-hooks/recommended"],
@@ -93,18 +90,29 @@ let webpackConfig = {
       );
 
       if (oneOfRule) {
-        // Insert a new rule at the TOP of oneOf to transpile problematic packages
+        // Add a new rule at the very beginning of oneOf to handle
+        // @radix-ui and docx packages that ship modern ESM with
+        // private class fields and super() in arrow functions
         oneOfRule.oneOf.unshift({
-          test: /\.(js|mjs|jsx|ts|tsx)$/,
-          include: [
-            path.resolve(__dirname, "node_modules/@radix-ui"),
-            path.resolve(__dirname, "node_modules/docx"),
-          ],
+          test: /\.(js|mjs)$/,
+          include: /node_modules\/(@radix-ui|docx)/,
           loader: require.resolve("babel-loader"),
           options: {
-            presets: [require.resolve("babel-preset-react-app")],
-            plugins: ["@babel/plugin-transform-classes"],
-            compact: true,
+            babelrc: false,
+            configFile: false,
+            compact: false,
+            presets: [
+              [
+                require.resolve("babel-preset-react-app"),
+                { helpers: true },
+              ],
+            ],
+            plugins: [
+              "@babel/plugin-transform-classes",
+            ],
+            cacheDirectory: true,
+            cacheCompression: false,
+            sourceMaps: true,
           },
         });
       }
