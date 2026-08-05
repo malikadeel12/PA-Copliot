@@ -1,7 +1,7 @@
 // --- Change Summary ---
-// What: DocAI + Claude extraction; Vision path for handwritten/low-clarity clinical notes.
-// Why: Improve OCR accuracy on poor scans while keeping Form Parser off the cheap OCR path.
-// Related: docai.js, prompts.js, POST /pa/capture
+// What: DocAI + Claude extraction; Vision path for handwritten/low-clarity clinical notes AND PDFs.
+// Why: Improve OCR accuracy on poor scans/PDFs while keeping Form Parser off the cheap OCR path.
+// Related: docai.js, prompts.js, POST /pa/capture; MCP context 7 Anthropic document blocks.
 
 const Anthropic = require("@anthropic-ai/sdk");
 const { PA_REASONING_SYSTEM_PROMPT, OCR_EXTRACTION_PROMPT } = require("./prompts");
@@ -56,29 +56,40 @@ function splitDataUrl(b64) {
   return { mimeType: "image/jpeg", content: b64 };
 }
 
-// Claude Vision: read handwritten / low-clarity clinical images that DocAI OCR missed.
+// Claude Vision / document: re-read handwritten or low-clarity clinical images AND PDFs
+// that DocAI OCR missed. Images use type "image"; PDFs use native type "document".
 async function visionExtractText(file) {
   const { mimeType, content } = splitDataUrl(file.content);
-  // Claude image blocks only accept images — never coerce PDF bytes to JPEG.
-  if (!mimeType.startsWith("image/")) {
+  const isPdf = mimeType === "application/pdf";
+  const isImage = mimeType.startsWith("image/");
+  // Skip unsupported types (keep DocAI text).
+  if (!isPdf && !isImage) {
     return file.text || "";
   }
-  const mediaType = mimeType;
+
+  // NOTE: Anthropic PDF document blocks have size/page limits — failures fall back in caller.
+  const mediaBlock = isPdf
+    ? {
+        type: "document",
+        source: { type: "base64", media_type: "application/pdf", data: content },
+      }
+    : {
+        type: "image",
+        source: { type: "base64", media_type: mimeType, data: content },
+      };
+
   const resp = await client().messages.create({
     model: EXTRACTION_MODEL,
-    max_tokens: 2000,
+    max_tokens: 4000,
     system:
       "You are a clinical OCR assistant. Transcribe ALL readable text from this " +
-      "handwritten or low-clarity clinical document. Preserve structure. " +
+      "handwritten or low-clarity clinical document (image or PDF scan). Preserve structure. " +
       "Return plain text only — no JSON, no markdown fences.",
     messages: [
       {
         role: "user",
         content: [
-          {
-            type: "image",
-            source: { type: "base64", media_type: mediaType, data: content },
-          },
+          mediaBlock,
           {
             type: "text",
             text:
@@ -89,12 +100,12 @@ async function visionExtractText(file) {
       },
     ],
   });
-  logUsage("vision-ocr", resp);
+  logUsage(isPdf ? "vision-ocr-pdf" : "vision-ocr", resp);
   return (textFromResponse(resp) || "").trim();
 }
 
 // 1) Google Document AI OCRs images/PDFs (OCR vs Form Parser by section).
-// 2) Low-clarity clinical/ID images → Claude Vision re-read.
+// 2) Low-clarity clinical/ID images + PDFs → Claude Vision / document re-read.
 // 3) Claude structures the merged text into extraction JSON.
 async function extractDocuments(files) {
   if (!files || files.length === 0) throw new Error("No files provided");

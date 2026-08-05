@@ -1,3 +1,7 @@
+// --- Change Summary ---
+// What: Wire direct PDF download + pass signature stamp into DOCX/PDF exporters.
+// Why: Close export polish gaps (true .pdf download; signature image in DOCX).
+// Related: exportPdf.js, exportDocx.js, Profile signature_data_url
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -6,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
 import { downloadPaFormDocx } from "@/lib/exportDocx";
+import { downloadPaFormPdf } from "@/lib/exportPdf";
 import {
   FileText, Gauge, Lightbulb, Mail, Download, Printer, CheckCircle2,
   AlertTriangle, ShieldCheck, ClipboardList, LogOut, Wand2,
@@ -154,13 +159,34 @@ export default function ResultsStep({ state, patch, onExit, onBack, onJumpToStep
     toast.success("Complete package downloaded");
   };
 
+  const exportOptions = () => ({
+    signatureDataUrl: user?.signature_data_url || "",
+  });
+
   const downloadDocx = async () => {
     try {
-      await downloadPaFormDocx(r, `pa-form-${Date.now()}.docx`);
+      await downloadPaFormDocx(r, {
+        ...exportOptions(),
+        filename: `pa-form-${Date.now()}.docx`,
+      });
       toast.success("DOCX exported");
     } catch (e) {
       console.error(e);
       toast.error("Could not create the DOCX file.");
+    }
+  };
+
+  // Direct .PDF download (no print dialog). Print remains available separately.
+  const downloadPdf = async () => {
+    try {
+      await downloadPaFormPdf(r, {
+        ...exportOptions(),
+        filename: `pa-form-${Date.now()}.pdf`,
+      });
+      toast.success("PDF downloaded");
+    } catch (e) {
+      console.error(e);
+      toast.error("Could not create the PDF file.");
     }
   };
 
@@ -174,7 +200,7 @@ export default function ResultsStep({ state, patch, onExit, onBack, onJumpToStep
     // Clear any stale scope from a previous print that may have aborted.
     body.classList.forEach((c) => { if (c.startsWith("print-scope-")) body.classList.remove(c); });
     if (testid) body.classList.add(`print-scope-${testid}`);
-    toast.info(label || "Opening print dialog — choose 'Save as PDF' as the destination to export a PDF.");
+    toast.info(label || "Opening print dialog.");
     // Defer slightly so the toast + layout settle before the modal opens.
     setTimeout(() => {
       window.print();
@@ -199,10 +225,10 @@ export default function ResultsStep({ state, patch, onExit, onBack, onJumpToStep
       <button
         type="button"
         data-testid={`${testid}-pdf-btn`}
-        aria-label={`Save ${label} as PDF`}
-        onClick={() => printScope(testid, `Choose "Save as PDF" in the print dialog to export ${label} as PDF.`)}
+        aria-label={`Download ${label} as PDF`}
+        onClick={downloadPdf}
         className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded border border-stone-200 bg-white hover:bg-stone-50 text-stone-700"
-        title={`Save ${label} as PDF (opens print dialog)`}
+        title={`Download ${label} as PDF`}
       >
         <Download className="w-3.5 h-3.5" /> PDF
       </button>
@@ -231,6 +257,7 @@ export default function ResultsStep({ state, patch, onExit, onBack, onJumpToStep
         </div>
         <div className="flex gap-2 master-export-bar flex-wrap">
           <Button data-testid="master-print-btn" variant="outline" onClick={() => printScope(null, "Opening print dialog for the complete package.")} className="h-11 rounded-xl border-stone-300"><Printer className="w-4 h-4 mr-2" /> Print All</Button>
+          <Button data-testid="master-pdf-btn" variant="outline" onClick={downloadPdf} className="h-11 rounded-xl border-stone-300"><Download className="w-4 h-4 mr-2" /> PDF</Button>
           <Button data-testid="master-docx-btn" variant="outline" onClick={downloadDocx} className="h-11 rounded-xl border-stone-300"><FileType className="w-4 h-4 mr-2" /> DOCX</Button>
           <Button data-testid="master-download-btn" onClick={downloadJson} className="h-11 px-6 bg-emerald-900 hover:bg-emerald-800 text-white border border-emerald-950"><Download className="w-4 h-4 mr-2" /> Download Complete Package</Button>
         </div>

@@ -210,7 +210,8 @@ async function extractFiles(files) {
         }
       }
 
-      // Non-form documents with weak OCR text → Claude Vision pipeline.
+      // Non-form documents with weak OCR text → Claude Vision / PDF document pipeline.
+      // Includes scanned PDF clinical notes (not just images).
       if (section !== "insurance" && (needsVision || isLowClarityText(text))) {
         needsVision = true;
       }

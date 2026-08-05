@@ -216,7 +216,7 @@ export default function CaptureStep({ state, patch, onNext }) {
     <div className="animate-fade-in-up">
       <span className="text-xs font-semibold uppercase tracking-[0.15em] text-emerald-700">Step 1 · Capture</span>
       <h1 className="mt-2 font-heading text-3xl sm:text-4xl font-semibold tracking-tight text-stone-900">Add the documents</h1>
-      <p className="mt-2 text-stone-500 max-w-xl">Upload one or more files per section. Handwritten or low-clarity clinical notes are routed through Claude Vision. Zero-database privacy — session data is purged on export or after 30 minutes.</p>
+      <p className="mt-2 text-stone-500 max-w-xl">Upload one or more files per section. Handwritten or low-clarity clinical notes (images or PDFs) are routed through Claude Vision. Zero-database privacy — session data is purged on export or after 30 minutes.</p>
 
       <div data-jump-focus="capture-rescan" className="mt-8 grid sm:grid-cols-3 gap-4">
         {SLOTS.map((slot) => {

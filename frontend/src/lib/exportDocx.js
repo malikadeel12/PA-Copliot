@@ -1,9 +1,9 @@
 // --- Change Summary ---
-// What: Client-side .DOCX export for filled PA form + medical summary.
-// Why: Multi-format export alongside browser Print/PDF.
-// Related: ResultsStep.js, docx npm package
+// What: Client-side .DOCX export for filled PA form + medical summary + signature image stamp.
+// Why: Multi-format export alongside PDF; stamp image must appear in generated DOCX.
+// Related: ResultsStep.js, exportPdf.js, docx npm package; MCP context 7.
 
-import { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType } from "docx";
+import { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType, ImageRun } from "docx";
 import { saveAs } from "./saveBlob";
 
 function p(text, opts = {}) {
@@ -32,11 +32,54 @@ function kv(label, value) {
   });
 }
 
+// --- Signature image helpers (DOCX only supports jpg/png/gif/bmp) ---
+function parseSignatureDataUrl(dataUrl) {
+  if (typeof dataUrl !== "string" || !dataUrl.startsWith("data:image")) return null;
+  const match = dataUrl.match(/^data:image\/(png|jpeg|jpg|gif|bmp);base64,(.+)$/i);
+  if (!match) return null;
+  let type = match[1].toLowerCase();
+  if (type === "jpeg") type = "jpg";
+  const binary = atob(match[2]);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return { type, data: bytes };
+}
+
+function signatureParagraphs(signatureDataUrl, signatureBlock) {
+  const parsed = parseSignatureDataUrl(signatureDataUrl);
+  const out = [heading("Digital signature / stamp", HeadingLevel.HEADING_2)];
+  if (parsed) {
+    out.push(
+      new Paragraph({
+        spacing: { after: 120 },
+        children: [
+          new ImageRun({
+            type: parsed.type,
+            data: parsed.data,
+            transformation: { width: 160, height: 56 },
+            altText: { title: "Signature", description: "Prescriber digital signature stamp", name: "signature" },
+          }),
+        ],
+      })
+    );
+  }
+  if (signatureBlock) {
+    out.push(p(signatureBlock, { run: { italics: true } }));
+  } else if (!parsed && signatureDataUrl && !String(signatureDataUrl).startsWith("data:")) {
+    out.push(p(String(signatureDataUrl), { run: { italics: true } }));
+  } else if (!parsed) {
+    out.push(p("—"));
+  }
+  return out;
+}
+
 /** Build and download a DOCX for the filled PA form + medical necessity narrative. */
-export async function downloadPaFormDocx(result, filename) {
+export async function downloadPaFormDocx(result, options = {}) {
   const form = result?.filled_form || {};
   const analysis = result?.analysis || {};
   const letter = result?.cover_letter || {};
+  const signatureDataUrl = options.signatureDataUrl || "";
+  const filename = typeof options === "string" ? options : options.filename;
 
   const doc = new Document({
     sections: [
@@ -85,7 +128,7 @@ export async function downloadPaFormDocx(result, filename) {
           kv("To", letter.to),
           kv("Subject", letter.subject),
           p(letter.body || ""),
-          p(letter.signature_block || "", { run: { italics: true } }),
+          ...signatureParagraphs(signatureDataUrl, letter.signature_block),
           new Paragraph({
             alignment: AlignmentType.LEFT,
             spacing: { before: 400 },
