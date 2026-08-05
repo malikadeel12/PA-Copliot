@@ -5,15 +5,17 @@ const cors = require("cors");
 const crypto = require("crypto");
 
 const { adminClient } = require("./supabase");
-const { requireAuth, publicUser, isEmailVerified } = require("./auth");
+const { requireAuth, publicUser, isEmailVerified, isTrialExpired } = require("./auth");
 const ruleEngine = require("./ruleEngine");
 const llm = require("./llm");
 const paStore = require("./paStore");
+const paypal = require("./paypal");
 
 const CREDIT_PACKS = { starter: 10, pro: 30, clinic: 100 };
-const DEMO_MODE = (process.env.DEMO_MODE || "").toLowerCase() === "true";
+const PACK_PRICES = { starter: 39, pro: 99, clinic: 279 };
 
 const app = express();
+
 app.use(express.json({ limit: "25mb" }));
 
 const corsOrigins = (process.env.CORS_ORIGINS || "").split(",").map((s) => s.trim()).filter(Boolean);
@@ -36,7 +38,7 @@ api.get("/health", (_req, res) => res.json({ status: "ok", ts: Date.now() }));
 const uid = (p) => `${p}_${crypto.randomBytes(8).toString("hex")}`;
 const wrap = (fn) => (req, res) => Promise.resolve(fn(req, res)).catch((e) => {
   console.error(e);
-  res.status(500).json({ detail: "Internal server error" });
+  res.status(500).json({ detail: "Something went wrong on our side. Please try again." });
 });
 
 async function countRows(table, filter) {
@@ -148,20 +150,189 @@ api.get("/stats", requireAuth, wrap(async (req, res) => {
 }));
 
 // ---------------------------------------------------------------------------
-// Billing (mock credits)
+// Billing — PayPal Orders v2 flow
 // ---------------------------------------------------------------------------
-api.post("/billing/mock-purchase", requireAuth, wrap(async (req, res) => {
-  // Normalize pack to a string — an array body would otherwise index CREDIT_PACKS
-  // with an array and silently produce undefined.
+// Change summary: create-order + capture-order only (no webhook, no demo/mock purchase).
+// Related: ./paypal.js, supabase paypal_orders table, frontend PayPalButtons.
+//
+//   POST /billing/create-order      -> creates an order on PayPal, returns id
+//   POST /billing/capture-order/:id -> captures after buyer approval + credits account
+//
+// The frontend never touches a real card. PayPal owns the entire payment
+// surface. We create the order, capture after buyer approval, then credit.
+
+api.post("/billing/create-order", requireAuth, wrap(async (req, res) => {
   const packKey = typeof req.body?.pack === "string" ? req.body.pack : "";
-  const amount = CREDIT_PACKS[packKey];
-  if (!amount) return res.status(400).json({ detail: "Unknown credit pack" });
-  const newCredits = (req.user.credits || 0) + amount;
-  await adminClient.from("profiles").update({ credits: newCredits }).eq("id", req.user.id);
-  await adminClient.from("credit_transactions").insert({ user_id: req.user.id, type: "purchase", amount, pack: packKey });
-  const { data } = await adminClient.from("profiles").select("*").eq("id", req.user.id).single();
-  res.json(publicUser(data));
+  const credits = CREDIT_PACKS[packKey];
+  const amountUSD = PACK_PRICES[packKey];
+  if (!credits || !amountUSD) return res.status(400).json({ detail: "Please choose a valid credit pack." });
+
+  let order;
+  try {
+    order = await paypal.createOrder({
+      packId: packKey,
+      credits,
+      amountUSD,
+      userId: req.user.id,
+    });
+  } catch (e) {
+    console.error("PayPal create-order failed:", e.status, e.message);
+    const detail = e.status === 401
+      ? "Payment checkout is temporarily unavailable. Please try again later or contact support."
+      : "PayPal could not start checkout. Please try again in a moment.";
+    return res.status(502).json({ detail, error_code: "PAYPAL_CREATE_FAILED" });
+  }
+
+  // Persist the (order_id -> user/pack) mapping so capture-order can credit
+  // the right account after the buyer approves payment.
+  const { error: insertErr } = await adminClient.from("paypal_orders").insert({
+    id: order.id,
+    user_id: req.user.id,
+    pack: packKey,
+    credits,
+    amount_usd: amountUSD,
+    status: "CREATED",
+  });
+  if (insertErr) {
+    // Order is already on PayPal's side — void it to avoid orphaned holds.
+    try {
+      await paypal.getOrder(order.id);  // confirm reachable
+    } catch { /* nothing more we can do here; operator will reconcile via PayPal dashboard */ }
+    console.error("paypal_orders insert failed:", insertErr.message);
+    return res.status(500).json({ detail: "Could not start checkout. Please try again." });
+  }
+
+  res.json({ orderId: order.id });
 }));
+
+api.post("/billing/capture-order/:id", requireAuth, wrap(async (req, res) => {
+  const orderId = req.params.id;
+  if (!/^[A-Z0-9]{17}$/.test(orderId)) return res.status(400).json({ detail: "Invalid payment reference. Please try again." });
+
+  // Lookup the order mapping + ownership. Refuse to capture an order that
+  // belongs to a different user.
+  const { data: row } = await adminClient.from("paypal_orders")
+    .select("*").eq("id", orderId).maybeSingle();
+  if (!row) return res.status(404).json({ detail: "We couldn't find this payment order. Please try buying credits again." });
+  if (row.user_id !== req.user.id) return res.status(403).json({ detail: "This payment belongs to a different account." });
+  if (row.status === "COMPLETED") {
+    // Recovery: COMPLETED without ledger → attempt grant again (idempotent).
+    try {
+      await creditFromPayPalOrder(row, { id: row.capture_id });
+    } catch (e) {
+      console.error("COMPLETED order recovery failed:", e.message);
+      return res.status(502).json({
+        detail: "Payment went through, but credits could not be confirmed yet. Please contact support and share your order ID.",
+        error_code: "PAYPAL_CREDIT_RECOVERY_FAILED",
+        orderId,
+      });
+    }
+    const { data: profile } = await adminClient.from("profiles").select("*").eq("id", req.user.id).single();
+    return res.json({ ok: true, already_completed: true, user: publicUser(profile) });
+  }
+  if (row.status !== "CREATED" && row.status !== "APPROVED") {
+    return res.status(409).json({
+      detail: "This payment can no longer be completed (it may have expired or been cancelled). Please start a new purchase.",
+    });
+  }
+
+  let captured;
+  try {
+    captured = await paypal.captureOrder(orderId);
+  } catch (e) {
+    console.error("PayPal capture-order failed:", e.status, e.message);
+    const detail = e.status === 422
+      ? "This PayPal payment expired or was cancelled. Please try buying credits again."
+      : "PayPal could not finish the payment. Please try again shortly.";
+    return res.status(502).json({ detail, error_code: "PAYPAL_CAPTURE_FAILED" });
+  }
+
+  const status = captured.status;
+  if (status !== "COMPLETED") {
+    // PENDING / VOIDED / etc. Don't credit until PayPal reports COMPLETED.
+    await adminClient.from("paypal_orders").update({ status }).eq("id", orderId);
+    return res.status(202).json({
+      ok: false,
+      status,
+      detail: "Payment is still processing with PayPal. Credits will appear once it is confirmed — please refresh in a minute.",
+    });
+  }
+
+  await creditFromPayPalOrder(row, captured);
+  const { data: profile } = await adminClient.from("profiles").select("*").eq("id", row.user_id).single();
+  res.json({ ok: true, user: publicUser(profile) });
+}));
+
+// Pull the real capture id out of an Orders v2 capture response.
+function extractCaptureId(captured) {
+  return (
+    captured?.purchase_units?.[0]?.payments?.captures?.[0]?.id ||
+    captured?.id ||
+    null
+  );
+}
+
+// Shared credit-grant path. Order of operations matters:
+//   1) ledger insert (unique paypal_order_id = idempotency lock)
+//   2) profile credit increment
+//   3) mark paypal_orders COMPLETED
+// Never mark COMPLETED before credits are granted — that stranded paid users.
+// Business rule: 1 successful PayPal capture → exactly one credit grant.
+async function creditFromPayPalOrder(row, captured) {
+  const captureId = extractCaptureId(captured);
+
+  // Already ledgered? Ensure order row is COMPLETED and exit.
+  const { data: existingTx } = await adminClient
+    .from("credit_transactions")
+    .select("id")
+    .eq("paypal_order_id", row.id)
+    .maybeSingle();
+  if (existingTx) {
+    await adminClient.from("paypal_orders").update({
+      status: "COMPLETED",
+      captured_at: new Date().toISOString(),
+      capture_id: captureId || row.capture_id || null,
+    }).eq("id", row.id);
+    return;
+  }
+
+  // Recovery: COMPLETED without a ledger row (legacy bug) — still grant below.
+  const { error: txErr } = await adminClient.from("credit_transactions").insert({
+    user_id: row.user_id, type: "purchase", amount: row.credits, pack: row.pack,
+    paypal_order_id: row.id, paypal_capture_id: captureId,
+  });
+  if (txErr && txErr.code !== "23505") {
+    console.error("credit_transactions insert failed:", txErr.message);
+    throw txErr;
+  }
+  if (txErr?.code === "23505") {
+    await adminClient.from("paypal_orders").update({
+      status: "COMPLETED", captured_at: new Date().toISOString(), capture_id: captureId,
+    }).eq("id", row.id);
+    return;
+  }
+
+  const { data: profile } = await adminClient.from("profiles").select("credits").eq("id", row.user_id).single();
+  const newCredits = (profile?.credits || 0) + row.credits;
+  const { error: profileErr } = await adminClient.from("profiles")
+    .update({ credits: newCredits }).eq("id", row.user_id);
+  if (profileErr) {
+    console.error("profile credit update failed:", profileErr.message);
+    // Leave order non-COMPLETED so a retry can finish granting after ledger insert.
+    // Delete the orphan tx so the unique index doesn't block recovery without credits.
+    await adminClient.from("credit_transactions").delete().eq("paypal_order_id", row.id);
+    throw profileErr;
+  }
+
+  const { error: updateErr } = await adminClient
+    .from("paypal_orders")
+    .update({ status: "COMPLETED", captured_at: new Date().toISOString(), capture_id: captureId })
+    .eq("id", row.id);
+  if (updateErr) {
+    console.error("paypal_orders update failed:", updateErr.message);
+    // Credits already granted — do not throw (capture endpoint should still return user).
+  }
+}
 
 // ---------------------------------------------------------------------------
 // PA pipeline
@@ -215,7 +386,7 @@ api.post("/pa/capture", requireAuth, wrap(async (req, res) => {
     return res.json({ request_id: requestId, extracted_data: manual, manual: true });
   }
 
-  if (!files.length) return res.status(400).json({ detail: "No document files provided" });
+  if (!files.length) return res.status(400).json({ detail: "Please add at least one document before continuing." });
   let extracted;
   try {
     extracted = await llm.extractDocuments(files);
@@ -223,13 +394,13 @@ api.post("/pa/capture", requireAuth, wrap(async (req, res) => {
     console.error("OCR failed:", e.message);
     let detail;
     if (/billing/i.test(e.message)) {
-      detail = "Document OCR is not enabled yet: billing must be enabled on the Google Cloud project. You can enter the details manually below.";
+      detail = "Document reading is temporarily unavailable. Please enter the details manually below, or try again later.";
     } else if (e.code === "UNCLEAR") {
       detail = "Document is unclear or blurry — please upload a clearer photo, or enter the details manually below.";
     } else if (e.code === "DOCUMENT_AI_FAILED") {
-      detail = "The document-reading service could not be reached. Please retry shortly. If this continues, check the Google Document AI configuration.";
+      detail = "The document-reading service could not be reached. Please retry shortly, or enter the details manually below.";
     } else if (e.code === "ANTHROPIC_FAILED") {
-      detail = "OCR succeeded, but the AI extraction service failed. Check the Anthropic API key and model configuration.";
+      detail = "We read the document, but could not extract the fields. Please retry, or enter the details manually below.";
     } else {
       detail = "Couldn't read the document. Please retry with a clearer photo, or enter the details manually below.";
     }
@@ -245,14 +416,34 @@ api.post("/pa/capture", requireAuth, wrap(async (req, res) => {
 
 api.post("/pa/:id/dictate", requireAuth, wrap(async (req, res) => {
   const rec = paStore.get(req.params.id, req.user.id);
-  if (!rec) return res.status(404).json({ detail: "Request session not found or expired" });
-  rec.dictation_transcript = req.body?.transcript || "";
+  if (!rec) return res.status(404).json({ detail: "This PA session expired or was cleared. Please start a new request." });
+  const next = typeof req.body?.transcript === "string" ? req.body.transcript : "";
+  // Only invalidate smart re-run when the narrative actually changed.
+  if (next !== (rec.dictation_transcript || "")) {
+    rec.payload_hash = null;
+    rec.claude_result = null;
+  }
+  rec.dictation_transcript = next;
   res.json({ ok: true });
+}));
+
+// Sync manually corrected OCR fields before validate/generate.
+// Business rule: edits to extracted_data force a fresh AI run (new credit)
+// only when the user later hits generate with a changed payload hash.
+api.put("/pa/:id/extracted", requireAuth, wrap(async (req, res) => {
+  const rec = paStore.get(req.params.id, req.user.id);
+  if (!rec) return res.status(404).json({ detail: "This PA session expired or was cleared. Please start a new request." });
+  if (!req.body?.extracted_data || typeof req.body.extracted_data !== "object") {
+    return res.status(400).json({ detail: "No extracted details were provided to save." });
+  }
+  rec.extracted_data = req.body.extracted_data;
+  if (rec.payload_hash) { rec.payload_hash = null; rec.claude_result = null; }
+  res.json({ ok: true, extracted_data: rec.extracted_data });
 }));
 
 api.get("/pa/:id/grids", requireAuth, wrap(async (req, res) => {
   const rec = paStore.get(req.params.id, req.user.id);
-  if (!rec) return res.status(404).json({ detail: "Request session not found or expired" });
+  if (!rec) return res.status(404).json({ detail: "This PA session expired or was cleared. Please start a new request." });
   const ex = rec.extracted_data || {};
   const ins = ex.InsuranceInformation || {};
   const diag = ex.DiagnosisInformation || {};
@@ -270,16 +461,35 @@ api.get("/pa/:id/grids", requireAuth, wrap(async (req, res) => {
 
 api.post("/pa/:id/confirm", requireAuth, wrap(async (req, res) => {
   const rec = paStore.get(req.params.id, req.user.id);
-  if (!rec) return res.status(404).json({ detail: "Request session not found or expired" });
+  if (!rec) return res.status(404).json({ detail: "This PA session expired or was cleared. Please start a new request." });
   rec.user_confirmations = req.body || {};
   res.json({ ok: true });
 }));
 
+// Replace explicit Conflict *labels* (not prose containing the word) with ******.
+// Matches: "Conflict", "CONFLICT:", "[Conflict]", "Conflict — …" as the whole value
+// or a short label prefix. Leaves phrases like "no drug conflict documented".
+function redactConflicts(value) {
+  if (typeof value === "string") {
+    const t = value.trim();
+    if (/^\[?conflict\]?\s*[:—-]?\s*$/i.test(t)) return "******";
+    if (/^conflict\b\s*[:—-]/i.test(t) && t.length < 80) return "******";
+    return value;
+  }
+  if (Array.isArray(value)) return value.map(redactConflicts);
+  if (value && typeof value === "object") {
+    const out = {};
+    for (const [k, v] of Object.entries(value)) out[k] = redactConflicts(v);
+    return out;
+  }
+  return value;
+}
+
 api.post("/pa/:id/generate", requireAuth, wrap(async (req, res) => {
   const rec = paStore.get(req.params.id, req.user.id);
-  if (!rec) return res.status(404).json({ detail: "Request session not found or expired" });
+  if (!rec) return res.status(404).json({ detail: "This PA session expired or was cleared. Please start a new request." });
   const { data: fresh } = await adminClient.from("profiles").select("*").eq("id", req.user.id).single();
-  if ((fresh.credits || 0) < 1) return res.status(402).json({ detail: "Insufficient credits. Please purchase more to continue." });
+  if (!fresh) return res.status(404).json({ detail: "Could not load your account. Please sign in again." });
 
   const confirmations = rec.user_confirmations || {};
   const codes = (confirmations.confirmed_codes || []).map((c) => c.code).filter(Boolean);
@@ -295,23 +505,75 @@ api.post("/pa/:id/generate", requireAuth, wrap(async (req, res) => {
     },
   };
 
+  // --- Smart re-run: same inputs → reuse cached result, do NOT deduct a credit ---
+  const payloadHash = crypto.createHash("sha256").update(JSON.stringify(payload)).digest("hex");
+  if (rec.claude_result && rec.payload_hash === payloadHash) {
+    return res.json({
+      result: redactConflicts(rec.claude_result),
+      credits: fresh.credits || 0,
+      reused: true,
+    });
+  }
+
+  // Trial expiry: free signup credits stop working after trial_ends_at unless
+  // the account has purchased credits at least once.
+  if (isTrialExpired(fresh)) {
+    const { data: purchases } = await adminClient.from("credit_transactions")
+      .select("id").eq("user_id", req.user.id).eq("type", "purchase").limit(1);
+    if (!purchases?.length) {
+      if ((fresh.credits || 0) > 0) {
+        await adminClient.from("profiles").update({ credits: 0 }).eq("id", req.user.id);
+      }
+      return res.status(402).json({
+        detail: "Your 7-day free trial has ended. Purchase credits to continue running analyses.",
+        error_code: "TRIAL_EXPIRED",
+      });
+    }
+  }
+
+  if ((fresh.credits || 0) < 1) {
+    return res.status(402).json({ detail: "You’re out of credits. Please buy more to continue." });
+  }
+
+  // Optimistic lock: reserve 1 credit before the LLM call so parallel tabs
+  // cannot both spend the same credit. Refund if reasoning fails.
+  const before = fresh.credits || 0;
+  const { data: reserved, error: reserveErr } = await adminClient
+    .from("profiles")
+    .update({ credits: before - 1 })
+    .eq("id", req.user.id)
+    .eq("credits", before)
+    .select("credits")
+    .maybeSingle();
+  if (reserveErr || !reserved) {
+    return res.status(402).json({ detail: "You’re out of credits. Please buy more to continue." });
+  }
+
   let result;
   try {
     result = await llm.runReasoning(payload);
   } catch (e) {
+    // Refund the reserved credit (re-read so a mid-flight purchase can't strand the refund).
+    const { data: mid } = await adminClient.from("profiles").select("credits").eq("id", req.user.id).single();
+    if (mid && (mid.credits || 0) === before - 1) {
+      await adminClient.from("profiles").update({ credits: before }).eq("id", req.user.id).eq("credits", before - 1);
+    } else if (mid) {
+      await adminClient.from("profiles").update({ credits: (mid.credits || 0) + 1 }).eq("id", req.user.id);
+    }
     console.error("Reasoning failed:", e.code || "UNKNOWN", e.message);
     const detail = e.code === "REASONING_INVALID_JSON"
-      ? "The AI response was incomplete or malformed. Please run the analysis again."
-      : "The AI analysis service could not complete the request. Please retry shortly.";
+      ? "The AI analysis didn’t finish correctly. Please run it again."
+      : "AI analysis couldn’t complete right now. Please try again shortly.";
     return res.status(422).json({ detail, error_code: e.code || "REASONING_FAILED" });
   }
 
-  const newCredits = (fresh.credits || 0) - 1;
-  await adminClient.from("profiles").update({ credits: newCredits }).eq("id", req.user.id);
+  result = redactConflicts(result);
+
   await adminClient.from("credit_transactions").insert({ user_id: req.user.id, type: "consume", amount: -1 });
   await adminClient.from("usage_events").insert({ user_id: req.user.id, event_type: "pa_request_completed" });
   rec.claude_result = result;
-  res.json({ result, credits: newCredits });
+  rec.payload_hash = payloadHash;
+  res.json({ result, credits: reserved.credits, reused: false });
 }));
 
 api.post("/pa/:id/end", requireAuth, wrap(async (req, res) => {

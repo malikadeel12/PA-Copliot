@@ -10,7 +10,7 @@ import { TrustBadge } from "@/components/TrustBadge";
 import { toast } from "sonner";
 import { ShieldCheck, Clock, FileCheck2, Loader2, Mail, RefreshCw } from "lucide-react";
 
-const AUTH_BG = "/login-hero.png";
+const AUTH_BG = "/brand/login-hero.png";
 
 // Detect Supabase email rate-limit errors and translate them into a
 // user-friendly message. The built-in SMTP defaults to 2 emails per hour
@@ -29,10 +29,17 @@ function isEmailRateLimit(err) {
 }
 
 function rateLimitHint() {
-  // The two relevant caps share the same recovery advice: wait an hour,
-  // or configure custom SMTP. Keep this short — sonner toasts truncate
-  // past ~200 chars on narrow viewports.
-  return "We've hit the hourly email rate limit (Supabase's built-in SMTP caps at ~2/hour). Please wait up to an hour and try again, or contact us to enable custom SMTP.";
+  return "Too many emails were sent recently. Please wait about an hour and try again, or contact support if you still need help.";
+}
+
+// --- Change Summary ---
+// What: Clear stale pa-oauth-intent on Login mount and before email/password auth.
+// Why: Cancelled "Sign up with Google" left intent=signup and broke email login
+//      (backend ALREADY_CREATED). Intent is only set again right before Google OAuth.
+// Related: backend-node/src/auth.js (OAuth-only intent gates), AuthCallback.js
+
+function clearOAuthIntent() {
+  try { sessionStorage.removeItem("pa-oauth-intent"); } catch { /* storage disabled */ }
 }
 
 export default function Login() {
@@ -44,6 +51,11 @@ export default function Login() {
   // After sign-up we move to this mode so the user has a clear "check your
   // email + resend" UI. `pendingEmail` carries the email forward.
   const [awaitingEmail, setAwaitingEmail] = useState(null);
+
+  // Cancelled Google OAuth returns here without AuthCallback — drop leftover intent.
+  useEffect(() => {
+    clearOAuthIntent();
+  }, []);
 
   useEffect(() => {
     if (user) {
@@ -137,6 +149,8 @@ export default function Login() {
   const submit = async (e) => {
     e.preventDefault();
     setBusy(true);
+    // Email/password must never carry a Google signup intent into /auth/me.
+    clearOAuthIntent();
     try {
       if (mode === "login") {
         const { error } = await supabase.auth.signInWithPassword({ email: form.email, password: form.password });
@@ -195,7 +209,7 @@ export default function Login() {
         }
         if (data.session) {
           const profile = await refreshUser();
-          toast.success("Account created — 10 free credits added");
+          toast.success("Account created — 7-day free trial with up to 30 runs");
           if (!profile?.profile_complete) navigate("/onboarding", { replace: true });
           else navigate("/dashboard", { replace: true });
         } else {
@@ -248,7 +262,7 @@ export default function Login() {
         <div className="absolute inset-0 pa-grid-bg opacity-[0.06]" />
         <div className="relative z-10 flex items-center gap-3">
           <div className="w-12 h-12 rounded-xl bg-white flex items-center justify-center shadow-lg shadow-black/10">
-            <img src="/pa-logo.png" alt="PA Copilot logo" className="w-9 h-9 object-contain" />
+            <img src="/brand/pa-logo.png" alt="PA Copilot logo" className="w-9 h-9 object-contain" />
           </div>
           <div className="text-white">
             <div className="font-heading font-bold text-xl tracking-tight">PA Copilot</div>
@@ -258,16 +272,16 @@ export default function Login() {
 
         <div className="relative z-10 text-white max-w-md">
           <h1 className="font-heading text-4xl xl:text-5xl font-semibold tracking-tight leading-[1.05]">
-            A submission-ready prior auth in under 5 minutes.
+            Zero-database privacy. Instant ephemeral cleanup.
           </h1>
           <p className="mt-5 text-stone-200 text-base leading-relaxed">
-            Snap the documents, dictate the narrative, and let the AI draft your filled form, approval analysis, ranked fixes, and cover letter — without ever storing patient data.
+            Snap the documents, dictate the narrative, and draft a submission-ready prior auth — patient data never hits a database and is purged the moment you export or the session ends.
           </p>
           <div className="mt-8 space-y-3">
             {[
-              { icon: Clock, t: "Under 5 minutes per request" },
+              { icon: Clock, t: "7-day free trial and up to 30 runs" },
               { icon: FileCheck2, t: "4 deliverables, one click" },
-              { icon: ShieldCheck, t: "Ephemeral — nothing persisted after export" },
+              { icon: ShieldCheck, t: "Zero-database privacy · instant ephemeral cleanup" },
             ].map(({ icon: Ic, t }) => (
               <div key={t} className="flex items-center gap-3 text-stone-100">
                 <div className="w-8 h-8 rounded-lg bg-white/15 flex items-center justify-center"><Ic className="w-4 h-4" /></div>
@@ -283,7 +297,7 @@ export default function Login() {
       <div className="flex items-center justify-center p-6 sm:p-10">
         <div className="w-full max-w-md animate-fade-in-up">
           <div className="lg:hidden flex items-center gap-2.5 mb-8">
-            <img src="/pa-logo.png" alt="PA Copilot logo" className="w-11 h-11 object-contain" />
+            <img src="/brand/pa-logo.png" alt="PA Copilot logo" className="w-11 h-11 object-contain" />
             <span className="font-heading font-bold text-xl text-stone-900">PA Copilot</span>
           </div>
 
@@ -302,7 +316,7 @@ export default function Login() {
               : mode === "login"
               ? "Welcome back. Let's clear that queue."
               : mode === "register"
-              ? "Start with 10 free analysis credits. Email verification required."
+              ? "7-day free trial and up to 30 runs. Email verification required."
               : "Enter your email and we'll send you a reset link."}
           </p>
 
@@ -315,12 +329,12 @@ export default function Login() {
                 </div>
                 <p className="mt-2 text-sm text-stone-600">
                   We sent a link to <span className="font-mono font-semibold text-stone-900">{awaitingEmail}</span>.
-                  Open it to confirm your address and activate your 10 free credits.
+                  Open it to confirm your address and start your 7-day free trial (up to 30 runs).
                 </p>
                 <ul className="mt-4 space-y-1.5 text-xs text-stone-500 list-disc list-inside">
                   <li>The email can take up to a minute to arrive.</li>
                   <li>Check your spam / promotions folder if you don't see it.</li>
-                  <li>If it never arrives, your project may be on Supabase's default SMTP which has tight rate limits — click Resend below.</li>
+                  <li>If it never arrives, check spam/junk, then click Resend below.</li>
                 </ul>
                 <div className="mt-5 flex flex-col sm:flex-row gap-2">
                   <Button data-testid="resend-verification-btn" onClick={resendVerification} disabled={busy}

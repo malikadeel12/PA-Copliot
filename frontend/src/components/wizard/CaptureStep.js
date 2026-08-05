@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import api, { formatApiError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,7 +7,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import DocumentImageEditor from "@/components/wizard/DocumentImageEditor";
 import { toast } from "sonner";
 import {
-  Upload, X, ScanLine, Loader2, ArrowRight, Maximize2, RefreshCw, Keyboard,
+  Upload, X, ScanLine, Loader2, ArrowRight, Keyboard,
   IdCard, CreditCard, FileText, CheckCircle2, Crop, Plus, File as FileIcon, Image as ImageIcon,
 } from "lucide-react";
 
@@ -153,7 +153,15 @@ export default function CaptureStep({ state, patch, onNext }) {
     setBusy(true);
     try {
       const { data } = await api.post("/pa/capture", { files });
-      patch({ requestId: data.request_id, extractedData: data.extracted_data });
+      // New extract invalidates grids/confirmations/result so Validate refetches.
+      patch({
+        requestId: data.request_id,
+        extractedData: data.extracted_data,
+        grids: null,
+        confirmations: null,
+        result: null,
+        transcript: "",
+      });
       toast.success(`${files.length} document${files.length === 1 ? "" : "s"} read successfully`);
     } catch (e) {
       const msg = formatApiError(e.response?.data?.detail);
@@ -188,7 +196,14 @@ export default function CaptureStep({ state, patch, onNext }) {
     setBusy(true);
     try {
       const { data } = await api.post("/pa/capture", { manual_data });
-      patch({ requestId: data.request_id, extractedData: data.extracted_data });
+      patch({
+        requestId: data.request_id,
+        extractedData: data.extracted_data,
+        grids: null,
+        confirmations: null,
+        result: null,
+        transcript: "",
+      });
       toast.success("Details saved");
     } catch (e) {
       toast.error(formatApiError(e.response?.data?.detail));
@@ -201,7 +216,7 @@ export default function CaptureStep({ state, patch, onNext }) {
     <div className="animate-fade-in-up">
       <span className="text-xs font-semibold uppercase tracking-[0.15em] text-emerald-700">Step 1 · Capture</span>
       <h1 className="mt-2 font-heading text-3xl sm:text-4xl font-semibold tracking-tight text-stone-900">Add the documents</h1>
-      <p className="mt-2 text-stone-500 max-w-xl">Upload one or more files per section. On desktop you can also drop in PDFs, Word documents, or plain-text files. Our vision AI reads the fields; nothing is stored after this session.</p>
+      <p className="mt-2 text-stone-500 max-w-xl">Upload one or more files per section. Handwritten or low-clarity clinical notes are routed through Claude Vision. Zero-database privacy — session data is purged on export or after 30 minutes.</p>
 
       <div data-jump-focus="capture-rescan" className="mt-8 grid sm:grid-cols-3 gap-4">
         {SLOTS.map((slot) => {
@@ -314,10 +329,31 @@ export default function CaptureStep({ state, patch, onNext }) {
       {extractedPreview ? (
         <div className="mt-8 rounded-lg bg-white border border-stone-300 p-6 shadow-sm animate-fade-in-up">
           <div className="flex items-center gap-2 text-emerald-700"><CheckCircle2 className="w-5 h-5" /><span className="font-heading font-semibold">Extracted data</span></div>
-          <ExtractedGrid data={extractedPreview} />
+          <p className="mt-1 text-sm text-stone-500">Review and correct any field before continuing — edits sync to this session only.</p>
+          <ExtractedEditor
+            data={extractedPreview}
+            requestId={state.requestId}
+            onLocalChange={(next) => patch({ extractedData: next, result: null, grids: null, confirmations: null })}
+          />
           <div className="mt-6 flex justify-end gap-3">
-            <Button data-testid="capture-reextract-btn" variant="outline" onClick={() => { patch({ extractedData: null, requestId: null }); setSlotFiles({ id: [], insurance: [], clinical: [] }); setManualMode(false); setAttempts(0); }} className="h-11 rounded-xl border-stone-300">Re-scan</Button>
-            <Button data-testid="capture-next-btn" onClick={onNext} className="h-11 px-6 bg-emerald-900 hover:bg-emerald-800 text-white font-semibold rounded-md border border-emerald-950 transition-colors">
+            <Button data-testid="capture-reextract-btn" variant="outline" onClick={() => {
+              patch({ extractedData: null, requestId: null, result: null, grids: null, confirmations: null, transcript: "" });
+              setSlotFiles({ id: [], insurance: [], clinical: [] });
+              setManualMode(false);
+              setAttempts(0);
+            }} className="h-11 rounded-xl border-stone-300">Re-scan</Button>
+            <Button data-testid="capture-next-btn" onClick={async () => {
+              // Flush pending OCR edits before leaving so Validate grids match the UI.
+              if (state.requestId && state.extractedData) {
+                try {
+                  await api.put(`/pa/${state.requestId}/extracted`, { extracted_data: state.extractedData });
+                } catch (e) {
+                  toast.error(formatApiError(e.response?.data?.detail) || "Could not save OCR edits. Please retry.");
+                  return;
+                }
+              }
+              onNext();
+            }} className="h-11 px-6 bg-emerald-900 hover:bg-emerald-800 text-white font-semibold rounded-md border border-emerald-950 transition-colors">
               Continue to dictation <ArrowRight className="w-4 h-4 ml-2" />
             </Button>
           </div>
@@ -397,22 +433,58 @@ export default function CaptureStep({ state, patch, onNext }) {
   );
 }
 
-function ExtractedGrid({ data }) {
-  const pi = data?.PatientInformation || {};
-  const ins = data?.InsuranceInformation || {};
-  const prov = data?.ProviderInformation || {};
-  const diag = data?.DiagnosisInformation || {};
-  const rows = [
-    ["Patient", pi.PatientName], ["DOB", pi.DateOfBirth], ["Payer", ins.PayerName],
-    ["Member ID", ins.InsuredIDNumber], ["Prescriber", prov.PrescriberName], ["NPI", prov.PrescriberNPI],
-    ["Primary ICD-10", diag.PrimaryICD10Code], ["Request", ins.RequestType],
-  ];
+// Editable OCR review — users correct parsed fields before the next step.
+const EDIT_FIELDS = [
+  { group: "PatientInformation", key: "PatientName", label: "Patient name" },
+  { group: "PatientInformation", key: "DateOfBirth", label: "DOB" },
+  { group: "PatientInformation", key: "PatientPhone", label: "Phone" },
+  { group: "InsuranceInformation", key: "PayerName", label: "Payer" },
+  { group: "InsuranceInformation", key: "InsuredIDNumber", label: "Member ID" },
+  { group: "InsuranceInformation", key: "GroupPlan", label: "Group / plan" },
+  { group: "InsuranceInformation", key: "RequestType", label: "Request type" },
+  { group: "ProviderInformation", key: "PrescriberName", label: "Prescriber" },
+  { group: "ProviderInformation", key: "PrescriberNPI", label: "NPI" },
+  { group: "DiagnosisInformation", key: "PrimaryICD10Code", label: "Primary ICD-10" },
+];
+
+function ExtractedEditor({ data, requestId, onLocalChange }) {
+  const syncTimer = useRef(null);
+  const latestRef = useRef(data);
+  latestRef.current = data;
+
+  useEffect(() => () => { if (syncTimer.current) clearTimeout(syncTimer.current); }, []);
+
+  const setField = (group, key, value) => {
+    const next = {
+      ...latestRef.current,
+      [group]: { ...(latestRef.current?.[group] || {}), [key]: value },
+    };
+    latestRef.current = next;
+    onLocalChange(next);
+    // Debounce server sync so rapid typing doesn't race older PUTs.
+    if (syncTimer.current) clearTimeout(syncTimer.current);
+    if (!requestId) return;
+    syncTimer.current = setTimeout(async () => {
+      try {
+        await api.put(`/pa/${requestId}/extracted`, { extracted_data: latestRef.current });
+      } catch (e) {
+        toast.error(formatApiError(e.response?.data?.detail) || "Could not save OCR edits — check your connection.");
+      }
+    }, 450);
+  };
+
   return (
-    <div className="mt-4 grid sm:grid-cols-2 gap-x-8 gap-y-2">
-      {rows.map(([k, v]) => (
-        <div key={k} className="flex items-center justify-between border-b border-stone-100 py-1.5">
-          <span className="text-xs uppercase tracking-wider text-stone-400 font-semibold">{k}</span>
-          <span className="font-mono text-sm text-stone-800">{v || <span className="text-stone-300">—</span>}</span>
+    <div className="mt-4 grid sm:grid-cols-2 gap-3" data-testid="extracted-editor" data-jump-focus="capture-rescan">
+      {EDIT_FIELDS.map((f) => (
+        <div key={`${f.group}.${f.key}`}>
+          <Label className="text-[10px] font-semibold uppercase tracking-wider text-stone-400">{f.label}</Label>
+          <Input
+            data-testid={`extracted-${f.key}`}
+            data-jump-focus={`extracted-${f.key}`}
+            value={data?.[f.group]?.[f.key] || ""}
+            onChange={(e) => setField(f.group, f.key, e.target.value)}
+            className="mt-1 h-10 font-mono text-sm"
+          />
         </div>
       ))}
     </div>

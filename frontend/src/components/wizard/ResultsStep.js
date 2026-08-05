@@ -5,10 +5,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
+import { downloadPaFormDocx } from "@/lib/exportDocx";
 import {
   FileText, Gauge, Lightbulb, Mail, Download, Printer, CheckCircle2,
-  AlertTriangle, ShieldCheck, ClipboardList, LogOut, Sparkles, Wand2,
-  Bold, Italic, Signature, RotateCcw, Copy,
+  AlertTriangle, ShieldCheck, ClipboardList, LogOut, Wand2,
+  Bold, Italic, Signature, RotateCcw, Copy, ArrowLeft, FileType,
 } from "lucide-react";
 import { resolveJumpTarget, getStepLabel } from "@/components/wizard/suggestionTargets";
 
@@ -24,16 +25,25 @@ const impactColor = (i) => ({
   Low: "bg-stone-300 text-stone-700",
 }[i] || "bg-stone-300 text-stone-700");
 
-export default function ResultsStep({ state, patch, onExit, onJumpToStep }) {
+export default function ResultsStep({ state, patch, onExit, onBack, onJumpToStep }) {
+  const { user } = useAuth();
   const r = state.result || {};
   const form = useMemo(() => r.filled_form || {}, [r.filled_form]);
   const analysis = r.analysis || {};
-  const suggestions = (r.suggestions || []).sort((a, b) => (a.priority || 9) - (b.priority || 9));
+  const suggestions = [...(r.suggestions || [])].sort((a, b) => (a.priority || 9) - (b.priority || 9));
   const letter = r.cover_letter || {};
   const sub = r.submission_info || {};
   const pct = Math.max(0, Math.min(100, analysis.approval_probability_pct ?? 0));
+  // Explicit confidence interval (e.g. 72% ± 8%), clamped so range stays in 0–100.
+  const rawCi = analysis.confidence_interval_pct ?? (
+    analysis.confidence_in_estimate === "High" ? 5 : analysis.confidence_in_estimate === "Medium" ? 8 : 12
+  );
+  const ci = Math.max(0, Math.min(25, Number(rawCi) || 8));
+  const ciLow = Math.max(0, pct - ci);
+  const ciHigh = Math.min(100, pct + ci);
 
   const scoreColor = pct >= 75 ? "#059669" : pct >= 50 ? "#d97706" : "#e11d48";
+  const sigIsImage = typeof user?.signature_data_url === "string" && user.signature_data_url.startsWith("data:image");
 
   // Snapshot the AI's original draft on first render so "Reset to AI draft"
   // always recovers the exact text Claude produced, regardless of subsequent
@@ -144,6 +154,16 @@ export default function ResultsStep({ state, patch, onExit, onJumpToStep }) {
     toast.success("Complete package downloaded");
   };
 
+  const downloadDocx = async () => {
+    try {
+      await downloadPaFormDocx(r, `pa-form-${Date.now()}.docx`);
+      toast.success("DOCX exported");
+    } catch (e) {
+      console.error(e);
+      toast.error("Could not create the DOCX file.");
+    }
+  };
+
   // Scope the browser's print dialog to a single panel by toggling a body
   // class (the injected stylesheet hides everything outside the target).
   // After the print dialog returns, the class is removed so normal layout
@@ -194,19 +214,24 @@ export default function ResultsStep({ state, patch, onExit, onJumpToStep }) {
     ["Member ID", form.insured_id_number], ["Prescriber", form.prescriber_name], ["NPI", form.prescriber_npi],
     ["Service code", form.service_code], ["J-Code / NDC", form.jcode_ndc], ["Primary ICD-10", form.primary_icd10],
     ["Quantity", form.quantity_duration], ["Place of service", form.place_of_service], ["Request type", form.request_type],
-    ["Modifiers", (form.modifiers || []).join(", ")], ["Allergies", form.known_allergies],
+    ["Modifiers", Array.isArray(form.modifiers) ? form.modifiers.join(", ") : (form.modifiers || "")],
+    ["Allergies", form.known_allergies],
   ]), [form]);
 
   return (
     <div className="animate-fade-in-up">
       <div className="flex items-start justify-between gap-4 flex-wrap no-print">
         <div>
+          <button type="button" data-testid="results-back-btn" onClick={onBack} className="flex items-center gap-1.5 text-sm text-stone-500 hover:text-stone-800 mb-2">
+            <ArrowLeft className="w-4 h-4" /> Back to validate
+          </button>
           <span className="text-xs font-semibold uppercase tracking-[0.15em] text-emerald-700">Step 4 · Package</span>
           <h1 className="mt-2 font-heading text-3xl sm:text-4xl font-semibold tracking-tight text-stone-900">Your submission package</h1>
           <p className="mt-2 text-stone-500">Four deliverables, ready to submit. Review, then export — the session purges after.</p>
         </div>
-        <div className="flex gap-2 master-export-bar">
+        <div className="flex gap-2 master-export-bar flex-wrap">
           <Button data-testid="master-print-btn" variant="outline" onClick={() => printScope(null, "Opening print dialog for the complete package.")} className="h-11 rounded-xl border-stone-300"><Printer className="w-4 h-4 mr-2" /> Print All</Button>
+          <Button data-testid="master-docx-btn" variant="outline" onClick={downloadDocx} className="h-11 rounded-xl border-stone-300"><FileType className="w-4 h-4 mr-2" /> DOCX</Button>
           <Button data-testid="master-download-btn" onClick={downloadJson} className="h-11 px-6 bg-emerald-900 hover:bg-emerald-800 text-white border border-emerald-950"><Download className="w-4 h-4 mr-2" /> Download Complete Package</Button>
         </div>
       </div>
@@ -227,6 +252,10 @@ export default function ResultsStep({ state, patch, onExit, onJumpToStep }) {
             </div>
             <div>
               <div className="text-xs uppercase tracking-wider text-stone-400 font-semibold">Approval probability</div>
+              <div className="mt-1 font-mono text-lg font-semibold text-stone-900" data-testid="approval-ci">
+                {pct}% ± {ci}%
+              </div>
+              <div className="text-[11px] text-stone-400">Range {ciLow}–{ciHigh}%</div>
               <span className={`mt-1.5 inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold border ${riskColor(analysis.denial_risk)}`}>
                 {analysis.denial_risk || "—"} denial risk
               </span>
@@ -302,7 +331,7 @@ export default function ResultsStep({ state, patch, onExit, onJumpToStep }) {
             {formRows.map(([k, v]) => (
               <div key={k} className="flex items-center justify-between border-b border-stone-100 py-1.5">
                 <span className="text-[11px] uppercase tracking-wider text-stone-400 font-semibold">{k}</span>
-                <span className="font-mono text-xs text-stone-800 text-right">{v || <span className="text-stone-300">null</span>}</span>
+                <span className="font-mono text-xs text-stone-800 text-right">{(v != null && v !== "") ? v : <span className="text-stone-300">—</span>}</span>
               </div>
             ))}
           </div>
@@ -312,6 +341,21 @@ export default function ResultsStep({ state, patch, onExit, onJumpToStep }) {
               <p className="text-sm text-stone-600 leading-relaxed bg-stone-50 rounded-lg p-3 border border-stone-100">{form.medical_necessity_narrative}</p>
             </div>
           )}
+          {(sigIsImage || user?.signature_data_url) && (
+            <div className="mt-4 border-t border-stone-100 pt-3">
+              <div className="text-xs font-semibold uppercase tracking-wider text-stone-500 mb-2">Digital signature / stamp</div>
+              {sigIsImage ? (
+                <img src={user.signature_data_url} alt="Prescriber signature" className="max-h-16 object-contain" data-testid="form-signature-image" />
+              ) : (
+                <p className="font-mono text-sm italic text-stone-700">{user.signature_data_url}</p>
+              )}
+            </div>
+          )}
+          <div className="mt-3 no-print">
+            <Button data-testid="panel-form-docx-btn" variant="outline" size="sm" onClick={downloadDocx} className="border-stone-300">
+              <FileType className="w-3.5 h-3.5 mr-1.5" /> Export form as DOCX
+            </Button>
+          </div>
         </Panel>
 
         {/* Panel 4 — Cover letter (editable) + submission */}
@@ -408,8 +452,18 @@ function EditableCoverLetter({ letter, aiDraft, onChange }) {
   };
 
   const insertSignature = () => {
-    const sig = (user?.signature_data_url || "").trim();
-    if (!sig) { toast.error("No saved signature — set one in Profile first."); return; }
+    const raw = (user?.signature_data_url || "").trim();
+    // Image stamps live on the form panel; for the letter, prefer typed name or profile name.
+    const sig = raw.startsWith("data:image") ? (user?.name || "").trim() : raw;
+    if (!sig) {
+      toast.error(raw.startsWith("data:image")
+        ? "Image stamp is on the form. Add your Full name in Profile to insert into the letter."
+        : "No saved signature — set one in Profile first.");
+      return;
+    }
+    if (raw.startsWith("data:image")) {
+      toast.message("Image stamp stays on the PA form; inserting your name into the letter.");
+    }
     const el = bodyRef.current;
     const append = (sig.includes("\n") ? "\n" : " ") + sig;
     if (!el) { update({ body: (letter.body || "") + append }); return; }

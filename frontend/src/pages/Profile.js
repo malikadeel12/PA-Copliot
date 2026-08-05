@@ -13,10 +13,13 @@ import { ArrowLeft, Loader2, User2, Stethoscope, KeyRound, Mail, Trash2, Link2 }
 export default function Profile() {
   const { user, setUser } = useAuth();
   const navigate = useNavigate();
+  const existingSig = user?.signature_data_url || "";
   const [form, setForm] = useState({
     name: user?.name || "", npi: user?.npi || "", specialty: user?.specialty || "",
     facility_name: user?.facility_name || "", facility_address: user?.facility_address || "",
-    signature_data_url: user?.signature_data_url || "",
+    // Keep typed name and image stamp separate in the UI so one doesn't silently wipe the other.
+    signature_typed: existingSig.startsWith("data:image") ? "" : existingSig,
+    signature_image: existingSig.startsWith("data:image") ? existingSig : "",
   });
   const [busy, setBusy] = useState(false);
   // Linked sign-in identities (e.g. ["email", "google"]) — fetched from
@@ -43,7 +46,16 @@ export default function Profile() {
   const save = async () => {
     setBusy(true);
     try {
-      const { data } = await api.put("/profile", form);
+      // Prefer image stamp when present; otherwise persist the typed signature name.
+      const signature_data_url = form.signature_image || form.signature_typed || "";
+      const { data } = await api.put("/profile", {
+        name: form.name,
+        npi: form.npi,
+        specialty: form.specialty,
+        facility_name: form.facility_name,
+        facility_address: form.facility_address,
+        signature_data_url,
+      });
       setUser(data);
       toast.success("Profile saved");
     } catch (e) {
@@ -121,11 +133,43 @@ export default function Profile() {
           {field("facility_name", "Facility name", "Riverside Clinic", true)}
           {field("facility_address", "Facility address", "123 Main St, Austin, TX 78701", true)}
           <div>
-            <Label className="text-xs font-semibold uppercase tracking-wider text-stone-500">E-signature name</Label>
-            <Input data-testid="profile-signature" value={form.signature_data_url}
-              onChange={(e) => setForm({ ...form, signature_data_url: e.target.value })}
-              placeholder="Typed signature (e.g. Jane Smith, MD)" className="mt-1.5 h-11 font-mono" />
-            <p className="mt-1.5 text-xs text-stone-400">Applied with a date stamp when you approve a package.</p>
+            <Label className="text-xs font-semibold uppercase tracking-wider text-stone-500">Typed e-signature name</Label>
+            <Input data-testid="profile-signature" value={form.signature_typed}
+              onChange={(e) => setForm({ ...form, signature_typed: e.target.value })}
+              placeholder="e.g. Jane Smith, MD"
+              className="mt-1.5 h-11 font-mono" />
+            <Label className="mt-4 block text-xs font-semibold uppercase tracking-wider text-stone-500">Signature / stamp image</Label>
+            <div className="mt-1.5 flex items-center gap-3 flex-wrap">
+              <label className="inline-flex items-center gap-2 px-3 h-10 rounded-md border border-stone-300 bg-white text-sm cursor-pointer hover:border-stone-400">
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  className="hidden"
+                  data-testid="profile-signature-upload"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    if (file.size > 800_000) {
+                      toast.error("Signature image must be under 800 KB.");
+                      return;
+                    }
+                    const reader = new FileReader();
+                    reader.onload = () => setForm((f) => ({ ...f, signature_image: String(reader.result || "") }));
+                    reader.readAsDataURL(file);
+                  }}
+                />
+                Upload signature image
+              </label>
+              {form.signature_image && (
+                <>
+                  <img src={form.signature_image} alt="Signature preview" className="h-12 object-contain border border-stone-200 rounded bg-white px-2" />
+                  <button type="button" className="text-xs text-stone-500 underline" onClick={() => setForm({ ...form, signature_image: "" })}>
+                    Clear image
+                  </button>
+                </>
+              )}
+            </div>
+            <p className="mt-1.5 text-xs text-stone-400">Image stamps the PA form. Typed name (or your Full name) inserts into the cover letter.</p>
           </div>
 
           <Button data-testid="profile-save-btn" onClick={save} disabled={busy}

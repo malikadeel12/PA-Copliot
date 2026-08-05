@@ -46,7 +46,7 @@ function NavItems({ nav, onNavigate }) {
 function Brand() {
   return (
     <div className="flex items-center gap-2.5">
-      <img src="/pa-logo.png" alt="PA Copilot logo" className="w-9 h-9 object-contain" />
+      <img src="/brand/pa-logo.png" alt="PA Copilot logo" className="w-9 h-9 object-contain" />
       <div className="leading-none">
         <div className="font-heading font-bold text-stone-900 text-[17px] tracking-tight">PA Copilot</div>
         <div className="text-[9px] uppercase tracking-[0.22em] text-stone-400 font-bold mt-0.5">Prior Authorization</div>
@@ -123,9 +123,15 @@ export default function AppShell({ title, children }) {
             <h1 className="hidden lg:block font-heading text-lg font-semibold tracking-tight text-stone-900">{title}</h1>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="hidden md:block text-right min-w-0 mr-1" data-testid="topbar-user-clinic">
+              <div className="text-sm font-medium text-stone-900 truncate max-w-[180px]">{user?.name || user?.email || "Prescriber"}</div>
+              {user?.facility_name && (
+                <div className="text-[11px] text-stone-500 truncate max-w-[180px]">{user.facility_name}</div>
+              )}
+            </div>
             <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 h-8 rounded-md border border-emerald-200 bg-emerald-50 text-emerald-800 text-[10px] font-bold uppercase tracking-widest">
-              <ShieldCheck className="w-3.5 h-3.5" /> Zero retention
+              <ShieldCheck className="w-3.5 h-3.5" /> Zero-DB privacy
             </span>
             <button
               data-testid="topbar-credits"

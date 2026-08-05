@@ -89,7 +89,7 @@ export default function Dashboard() {
             Good to see you, {firstName}.
           </h1>
           <p className="mt-2 text-stone-500 text-sm max-w-xl leading-relaxed">
-            Turn a prior-authorization into a submission-ready package — filled form, approval-likelihood analysis, ranked fixes, and cover letter — in under five minutes.
+            Turn a prior-authorization into a submission-ready package — with zero-database privacy and instant ephemeral cleanup. New accounts get a 7-day free trial and up to 30 runs.
           </p>
         </div>
       </div>

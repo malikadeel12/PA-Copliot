@@ -1,7 +1,12 @@
+// --- Change Summary ---
+// What: Sticky patient metadata bar, in-app Back, username/clinic in header.
+// Why: Features 5 & 9 — persistent patient context + branding during PA runs.
+// Related: CaptureStep, ValidateStep, ResultsStep, AppShell
+
 import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
-import { Activity, X, Check } from "lucide-react";
+import { X, Check, ArrowLeft } from "lucide-react";
 import { TrustBadge } from "@/components/TrustBadge";
 import CaptureStep from "@/components/wizard/CaptureStep";
 import DictationStep from "@/components/wizard/DictationStep";
@@ -11,9 +16,38 @@ import api from "@/lib/api";
 
 const STEP_LABELS = ["Capture", "Dictate", "Validate", "Package"];
 
+function PatientMetaBar({ extracted }) {
+  const pi = extracted?.PatientInformation || {};
+  const ins = extracted?.InsuranceInformation || {};
+  const cells = [
+    { label: "Patient", value: pi.PatientName },
+    { label: "DOB", value: pi.DateOfBirth },
+    { label: "Member ID", value: ins.InsuredIDNumber },
+    { label: "Payer", value: ins.PayerName },
+  ];
+  if (!cells.some((c) => c.value)) return null;
+  return (
+    <div
+      data-testid="patient-meta-bar"
+      className="sticky top-16 z-40 border-b border-stone-200 bg-emerald-50/95 backdrop-blur-sm no-print"
+    >
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-2 grid grid-cols-2 sm:grid-cols-4 gap-2">
+        {cells.map((c) => (
+          <div key={c.label} className="min-w-0">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-emerald-800/70">{c.label}</div>
+            <div className="font-mono text-xs sm:text-sm text-stone-900 truncate" title={c.value || ""}>
+              {c.value || "—"}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function Wizard() {
   const navigate = useNavigate();
-  const { refreshUser } = useAuth();
+  const { user, refreshUser } = useAuth();
   const [step, setStep] = useState(0);
   const [state, setState] = useState({
     requestId: null,
@@ -28,36 +62,35 @@ export default function Wizard() {
 
   const exitWizard = async () => {
     if (state.requestId) {
-      try { await api.post(`/pa/${state.requestId}/end`); } catch {}
+      try { await api.post(`/pa/${state.requestId}/end`); } catch { /* ignore */ }
     }
     await refreshUser();
     navigate("/dashboard");
   };
 
-  // Jump back to a previous step from the Package panel so the user can fix
-  // the suggested field, then re-run analysis. Unlike `exitWizard` this does
-  // NOT purge the in-memory session — the user is still iterating on the
-  // same PA request.
+  // Jump back without purging session. Keep result so unchanged re-runs
+  // can reuse the cached package (no credit charge).
   const jumpToStep = (stepIndex, focusKey) => {
     setStep(stepIndex);
-    setState((s) => ({ ...s, result: null })); // clear stale result; they'll re-run
     pendingFocus.current = focusKey || null;
   };
 
-  // After a step re-renders following a jump, scroll + focus the matching
-  // control (or just the top of the step as a graceful fallback).
+  const goBack = () => {
+    if (step <= 0) return;
+    setStep((s) => s - 1);
+  };
+
   const pendingFocus = useRef(null);
   useEffect(() => {
     const key = pendingFocus.current;
     pendingFocus.current = null;
     if (!key) return;
-    // Wait for the step to mount + its data to load.
     const tryFocus = (tries = 12) => {
       const node = document.querySelector(`[data-jump-focus="${key}"]`);
       if (node) {
         node.scrollIntoView({ behavior: "smooth", block: "center" });
         if (typeof node.focus === "function") {
-          try { node.focus({ preventScroll: true }); } catch { /* not all elements accept focus */ }
+          try { node.focus({ preventScroll: true }); } catch { /* ignore */ }
         }
       } else if (tries > 0) {
         setTimeout(() => tryFocus(tries - 1), 80);
@@ -66,14 +99,32 @@ export default function Wizard() {
     setTimeout(() => tryFocus(), 60);
   }, [step]);
 
+  const displayName = user?.name || user?.email || "Prescriber";
+  const clinic = user?.facility_name || "";
+
   return (
     <div className="min-h-screen bg-stone-50 flex flex-col">
-      {/* Sticky wizard header */}
       <header className="sticky top-0 z-50 bg-white border-b border-stone-200 no-print">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2.5">
-            <img src="/pa-logo.png" alt="PA Copilot logo" className="w-8 h-8 object-contain" />
-            <span className="font-heading font-bold text-stone-900 hidden sm:inline">PA Copilot</span>
+          <div className="flex items-center gap-2.5 min-w-0">
+            {step > 0 && (
+              <button
+                type="button"
+                data-testid="wizard-back-header"
+                onClick={goBack}
+                className="w-8 h-8 rounded-full flex items-center justify-center text-stone-500 hover:bg-stone-100 hover:text-stone-800 transition-colors shrink-0"
+                title="Back to previous step"
+              >
+                <ArrowLeft className="w-4 h-4" />
+              </button>
+            )}
+            <img src="/brand/pa-logo.png" alt="PA Copilot logo" className="w-8 h-8 object-contain shrink-0" />
+            <div className="min-w-0 hidden sm:block">
+              <div className="font-heading font-bold text-stone-900 leading-tight">PA Copilot</div>
+              <div className="text-[10px] text-stone-500 truncate" data-testid="wizard-user-clinic">
+                {displayName}{clinic ? ` · ${clinic}` : ""}
+              </div>
+            </div>
           </div>
 
           <div className="flex-1 flex items-center justify-center gap-1.5 sm:gap-3">
@@ -97,16 +148,25 @@ export default function Wizard() {
         </div>
       </header>
 
+      <PatientMetaBar extracted={state.extractedData} />
+
       <main className="flex-1 w-full max-w-4xl mx-auto px-4 sm:px-6 pt-8 pb-24">
         {step === 0 && <CaptureStep state={state} patch={patch} onNext={() => setStep(1)} />}
-        {step === 1 && <DictationStep state={state} patch={patch} onBack={() => setStep(0)} onNext={() => setStep(2)} />}
+        {step === 1 && (
+          <DictationStep
+            state={state}
+            patch={patch}
+            onBack={() => setStep(0)}
+            onNext={() => setStep(2)}
+          />
+        )}
         {step === 2 && <ValidateStep state={state} patch={patch} onBack={() => setStep(1)} onNext={() => setStep(3)} refreshUser={refreshUser} />}
-        {step === 3 && <ResultsStep state={state} patch={patch} onExit={exitWizard} onJumpToStep={jumpToStep} />}
+        {step === 3 && <ResultsStep state={state} patch={patch} onExit={exitWizard} onBack={() => setStep(2)} onJumpToStep={jumpToStep} />}
       </main>
 
       <footer className="no-print border-t border-stone-200 bg-white py-4">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 flex items-center justify-center">
-          <TrustBadge label="Session-only · purges on export or after 30 min" />
+          <TrustBadge label="Zero-database privacy · Instant ephemeral cleanup" />
         </div>
       </footer>
     </div>

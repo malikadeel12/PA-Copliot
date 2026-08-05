@@ -1,11 +1,16 @@
-import React, { useState } from "react";
+// --- Change Summary ---
+// What: Pricing page — PayPal checkout only (no demo/mock credit purchase).
+// Why: Real PayPal orders are the only credit path; demo credits removed.
+// Related: PayPalButtons.js, REACT_APP_PAYPAL_CLIENT_ID, POST /billing/create-order
+
+import React, { useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
-import api, { formatApiError } from "@/lib/api";
 import AppShell from "@/components/AppShell";
-import { Button } from "@/components/ui/button";
+import PayPalButtons from "@/components/PayPalButtons";
+import { isPayPalConfigured } from "@/lib/paypal";
 import { toast } from "sonner";
-import { ArrowLeft, Check, Loader2, Zap } from "lucide-react";
+import { ArrowLeft, Check, AlertCircle } from "lucide-react";
 
 const PACKS = [
   { id: "starter", name: "Starter", credits: 10, price: 39, per: "$3.90 / request", highlight: false },
@@ -16,20 +21,12 @@ const PACKS = [
 export default function BuyCredits() {
   const { user, setUser } = useAuth();
   const navigate = useNavigate();
-  const [busy, setBusy] = useState(null);
+  const paypalReady = isPayPalConfigured();
 
-  const buy = async (pack) => {
-    setBusy(pack);
-    try {
-      const { data } = await api.post("/billing/mock-purchase", { pack });
-      setUser(data);
-      toast.success(`Added ${PACKS.find((p) => p.id === pack).credits} credits`);
-    } catch (e) {
-      toast.error(formatApiError(e.response?.data?.detail));
-    } finally {
-      setBusy(null);
-    }
-  };
+  const handlePaid = useCallback((updatedUser) => {
+    setUser(updatedUser);
+    toast.success("Payment received — credits added to your account.");
+  }, [setUser]);
 
   return (
     <AppShell title="Billing & credits">
@@ -43,8 +40,22 @@ export default function BuyCredits() {
             You currently have <span className="font-mono font-semibold text-emerald-700">{user?.credits ?? 0}</span> credits.
             Each completed PA analysis uses 1 credit.
           </p>
-          <p className="mt-2 text-xs text-stone-400 uppercase tracking-wider">Demo checkout — no real payment processed yet</p>
+          <p className="mt-2 text-xs text-stone-400 uppercase tracking-wider">
+            {paypalReady ? "Secure checkout powered by PayPal" : "PayPal checkout unavailable"}
+          </p>
         </div>
+
+        {!paypalReady && (
+          <div className="mt-6 max-w-xl mx-auto flex gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900" data-testid="paypal-missing-banner">
+            <AlertCircle className="w-5 h-5 shrink-0 text-amber-700" />
+            <div>
+              <p className="font-semibold">PayPal is not loaded in this browser session.</p>
+              <p className="mt-1 text-amber-800/90">
+                Restart the frontend app so it picks up the PayPal client ID, then refresh this page.
+              </p>
+            </div>
+          </div>
+        )}
 
         <div className="mt-10 grid sm:grid-cols-3 gap-5">
           {PACKS.map((p) => (
@@ -64,10 +75,14 @@ export default function BuyCredits() {
                   <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-700 shrink-0" /> 4-panel package + export</li>
                   <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-700 shrink-0" /> Zero data retention</li>
                 </ul>
-                <Button data-testid={`buy-pack-${p.id}`} onClick={() => buy(p.id)} disabled={busy === p.id}
-                  className={`mt-6 h-11 font-semibold rounded-md border transition-colors ${p.highlight ? "bg-emerald-900 hover:bg-emerald-800 text-white border-emerald-950" : "bg-white hover:bg-stone-50 text-stone-900 border-stone-300"}`}>
-                  {busy === p.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Zap className="w-4 h-4 mr-1.5" /> Get {p.credits} credits</>}
-                </Button>
+
+                {paypalReady ? (
+                  <PayPalButtons packId={p.id} onPaid={handlePaid} />
+                ) : (
+                  <p className="mt-6 text-center text-xs text-stone-400" data-testid={`buy-pack-${p.id}-disabled`}>
+                    PayPal buttons unavailable
+                  </p>
+                )}
               </div>
             </div>
           ))}

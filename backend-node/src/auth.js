@@ -1,6 +1,27 @@
+// --- Change Summary ---
+// What: Signup grant checks credit_transactions (not balance); OAuth intent
+//       gates only apply to Google/OAuth — email login ignores stale signup intent.
+// Why: Spent-to-zero users were re-granted 30 credits; cancelled Google signup
+//      left pa-oauth-intent=signup and broke email password login.
+// Related: frontend Login.js (clears pa-oauth-intent), credit_transactions table
+
 const { authClient, adminClient } = require("./supabase");
 
-const SIGNUP_FREE_CREDITS = 10;
+// Trial grant: 7-day free trial and up to 30 runs (enforced via trial_ends_at).
+const SIGNUP_FREE_CREDITS = 30;
+const TRIAL_DAYS = 7;
+
+function trialEndsAtIso(from = new Date()) {
+  const d = new Date(from.getTime());
+  d.setUTCDate(d.getUTCDate() + TRIAL_DAYS);
+  return d.toISOString();
+}
+
+/** True when free-trial window has ended (purchased credits still work). */
+function isTrialExpired(profile) {
+  if (!profile?.trial_ends_at) return false;
+  return new Date(profile.trial_ends_at).getTime() < Date.now();
+}
 
 // Mandatory prescriber onboarding — required fields before dashboard access.
 const MANDATORY_FIELDS = ["name", "npi", "specialty", "facility_name", "facility_address"];
@@ -49,7 +70,9 @@ async function ensureProfile(user, intent = "login") {
     .from("profiles").select("*").eq("id", user.id).maybeSingle();
 
   if (byId) {
-    if (intent === "signup") {
+    // Business rule: ALREADY_CREATED only for OAuth "Create account" flows.
+    // Email/password must ignore a leftover signup intent from a cancelled Google click.
+    if (intent === "signup" && provider !== "email") {
       const err = new Error("Account already exists. Please log in instead.");
       err.code = "ALREADY_CREATED";
       throw err;
@@ -67,7 +90,7 @@ async function ensureProfile(user, intent = "login") {
     const { data: byEmail } = await adminClient
       .from("profiles").select("*").eq("email", user.email).maybeSingle();
     if (byEmail) {
-      if (intent === "signup") {
+      if (intent === "signup" && provider !== "email") {
         const err = new Error("Account already exists. Please log in instead.");
         err.code = "ALREADY_CREATED";
         throw err;
@@ -92,21 +115,39 @@ async function ensureProfile(user, intent = "login") {
   return createProfile(user, provider);
 }
 
-async function applyCreditGrant(profile, user) {
-  // Lazy credit grant: if the profile was created before email verification
-  // and the user has now confirmed their email, give them the signup bonus.
-  const verified = isEmailVerified(user);
-  const alreadyGranted = (profile.credits || 0) > 0;
-  if (verified && !alreadyGranted) {
-    const newCredits = (profile.credits || 0) + SIGNUP_FREE_CREDITS;
-    const { data: credited } = await adminClient
-      .from("profiles").update({ credits: newCredits }).eq("id", profile.id).select("*").single();
-    await adminClient.from("credit_transactions").insert({
-      user_id: profile.id, type: "signup_grant", amount: SIGNUP_FREE_CREDITS,
-    });
-    return credited || profile;
+async function hasSignupGrant(userId) {
+  // Ledger is the source of truth — balance can be 0 after the user spends
+  // their trial credits, which must NOT trigger another signup_grant.
+  const { data, error } = await adminClient
+    .from("credit_transactions")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("type", "signup_grant")
+    .limit(1);
+  if (error) {
+    console.error("signup_grant lookup failed:", error.message);
+    // Fail closed: skip re-grant rather than risk infinite free credits.
+    return true;
   }
-  return profile;
+  return Boolean(data?.length);
+}
+
+async function applyCreditGrant(profile, user) {
+  // Lazy credit grant: profile may exist at 0 credits before email verification;
+  // once verified, grant the signup bonus once (tracked in credit_transactions).
+  const verified = isEmailVerified(user);
+  if (!verified) return profile;
+  if (await hasSignupGrant(profile.id)) return profile;
+
+  const newCredits = (profile.credits || 0) + SIGNUP_FREE_CREDITS;
+  const patch = { credits: newCredits };
+  if (!profile.trial_ends_at) patch.trial_ends_at = trialEndsAtIso();
+  const { data: credited } = await adminClient
+    .from("profiles").update(patch).eq("id", profile.id).select("*").single();
+  await adminClient.from("credit_transactions").insert({
+    user_id: profile.id, type: "signup_grant", amount: SIGNUP_FREE_CREDITS,
+  });
+  return credited || profile;
 }
 
 async function createProfile(user, provider) {
@@ -118,13 +159,22 @@ async function createProfile(user, provider) {
     id: user.id,
     email: user.email,
     name: meta.full_name || meta.name || null,
-    signature_data_url: meta.avatar_url || null,
+    // Never seed signature from Google avatar URL (that broke the signature stamp).
+    signature_data_url: null,
     role: "physician",
     credits: initialCredits,
     auth_provider: provider,
+    trial_ends_at: initialCredits > 0 ? trialEndsAtIso() : null,
   };
-  const { data: created, error } = await adminClient
+  let { data: created, error } = await adminClient
     .from("profiles").insert(insert).select("*").single();
+  // If trial_ends_at column isn't migrated yet, retry without it so signup
+  // still works; trial expiry simply won't enforce until SQL is applied.
+  if (error && /trial_ends_at/i.test(error.message || "")) {
+    const { trial_ends_at: _omit, ...withoutTrial } = insert;
+    ({ data: created, error } = await adminClient
+      .from("profiles").insert(withoutTrial).select("*").single());
+  }
   // Multiple tabs or near-simultaneous frontend auth listeners can reach
   // first-profile creation together. The losing insert should reuse the
   // profile created by the winning request, not fail the user's login.
@@ -145,10 +195,10 @@ async function createProfile(user, provider) {
 async function requireAuth(req, res, next) {
   const h = req.headers.authorization || "";
   const token = h.startsWith("Bearer ") ? h.slice(7) : null;
-  if (!token) return res.status(401).json({ detail: "Not authenticated" });
+  if (!token) return res.status(401).json({ detail: "Please sign in to continue." });
 
   const { data, error } = await authClient.auth.getUser(token);
-  if (error || !data?.user) return res.status(401).json({ detail: "Invalid or expired token" });
+  if (error || !data?.user) return res.status(401).json({ detail: "Your session expired. Please sign in again." });
 
   const intentRaw = (req.headers["x-oauth-intent"] || "login").toString().toLowerCase();
   const intent = intentRaw === "signup" ? "signup" : "login";
@@ -169,7 +219,7 @@ async function requireAuth(req, res, next) {
       });
     }
     console.error("ensureProfile failed:", e.message);
-    return res.status(500).json({ detail: "Profile lookup failed" });
+    return res.status(500).json({ detail: "Could not load your account profile. Please try again." });
   }
   return next();
 }
@@ -188,10 +238,12 @@ function publicUser(p) {
     role: p.role ?? "physician",
     auth_provider: p.auth_provider ?? "supabase",
     profile_complete: isProfileComplete(p),
+    trial_ends_at: p.trial_ends_at ?? null,
+    trial_expired: isTrialExpired(p),
   };
 }
 
 module.exports = {
-  SIGNUP_FREE_CREDITS, MANDATORY_FIELDS, isProfileComplete,
-  requireAuth, publicUser, isEmailVerified,
+  SIGNUP_FREE_CREDITS, TRIAL_DAYS, MANDATORY_FIELDS, isProfileComplete,
+  requireAuth, publicUser, isEmailVerified, isTrialExpired, trialEndsAtIso,
 };

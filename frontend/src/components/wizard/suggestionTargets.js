@@ -7,25 +7,28 @@
 // to a generic "go back to step" message without auto-focus.
 
 const FIELD_TO_STEP = {
-  // Step 0 — Capture (re-scan or re-enter patient/diagnosis details)
-  patient_name:           { step: 0, focus: "capture-rescan" },
-  date_of_birth:          { step: 0, focus: "capture-rescan" },
-  patient_phone:          { step: 0, focus: "capture-rescan" },
-  payer_name:             { step: 0, focus: "capture-rescan" },
-  insured_id_number:      { step: 0, focus: "capture-rescan" },
-  member_id:              { step: 0, focus: "capture-rescan" },
-  group_plan:             { step: 0, focus: "capture-rescan" },
-  primary_icd10:          { step: 0, focus: "capture-rescan" },
-  additional_icd10:       { step: 0, focus: "capture-rescan" },
-  diagnosis:              { step: 0, focus: "capture-rescan" },
+  // Step 0 — Capture (editable OCR fields after extract)
+  patient_name:           { step: 0, focus: "extracted-PatientName" },
+  date_of_birth:          { step: 0, focus: "extracted-DateOfBirth" },
+  patient_phone:          { step: 0, focus: "extracted-PatientPhone" },
+  payer_name:             { step: 0, focus: "extracted-PayerName" },
+  insured_id_number:      { step: 0, focus: "extracted-InsuredIDNumber" },
+  member_id:              { step: 0, focus: "extracted-InsuredIDNumber" },
+  group_plan:             { step: 0, focus: "extracted-GroupPlan" },
+  primary_icd10:          { step: 0, focus: "extracted-PrimaryICD10Code" },
+  additional_icd10:       { step: 0, focus: "extracted-PrimaryICD10Code" },
+  diagnosis:              { step: 0, focus: "extracted-PrimaryICD10Code" },
+  capture_rescan:         { step: 0, focus: "capture-rescan" },
 
   // Step 1 — Dictate (clinical narrative lives here)
   medical_necessity_narrative: { step: 1, focus: "dictation-transcript" },
   dictation:                   { step: 1, focus: "dictation-transcript" },
   narrative:                   { step: 1, focus: "dictation-transcript" },
   clinical_narrative:          { step: 1, focus: "dictation-transcript" },
-  urgency_justification:       { step: 1, focus: "dictation-transcript" },
-  urgency:                     { step: 1, focus: "dictation-transcript" },
+
+  // Urgent justification is on Validate (not Dictate)
+  urgency_justification:       { step: 2, focus: "validate-urgency-text" },
+  urgency:                     { step: 2, focus: "validate-urgent-switch" },
 
   // Step 2 — Validate (everything else lives here)
   service_code:        { step: 2, focus: "validate-crosswalk" },

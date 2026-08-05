@@ -48,7 +48,8 @@ now run on **Supabase** (Postgres + Supabase Auth). AI uses **your own Anthropic
 - `PUT /profile`
 - `GET /stats`
 - `GET /admin/overview`, `GET /admin/users`, `POST /admin/users/:userId/grant-credits` (admin only)
-- `POST /billing/mock-purchase` `{ pack: "starter"|"pro"|"clinic" }`
+- `POST /billing/create-order` `{ pack: "starter"|"pro"|"clinic" }` → PayPal order id
+- `POST /billing/capture-order/:id` → capture payment + credit account
 - `GET /reference`
 - `POST /pa/capture` → `POST /pa/:id/dictate` → `GET /pa/:id/grids` → `POST /pa/:id/confirm` → `POST /pa/:id/generate` → `POST /pa/:id/end`
 

@@ -1,3 +1,7 @@
+// --- Change Summary ---
+// What: Persist transcript on Back; warn on empty narrative; mic error toasts.
+// Why: Header Back was dropping unsaved dictation; empty narrative confused users.
+
 import React, { useState, useRef, useEffect } from "react";
 import api, { formatApiError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -18,10 +22,14 @@ export default function DictationStep({ state, patch, onBack, onNext }) {
   const [busy, setBusy] = useState(false);
   const [supported, setSupported] = useState(true);
   const recogRef = useRef(null);
+  const transcriptRef = useRef(transcript);
+  // Snapshot last server-persisted narrative (wizard state updates locally on every keystroke).
+  const savedOnServerRef = useRef(state.transcript || "");
+  transcriptRef.current = transcript;
 
   useEffect(() => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) { setSupported(false); return; }
+    if (!SR) { setSupported(false); return undefined; }
     const r = new SR();
     r.continuous = true; r.interimResults = true; r.lang = "en-US";
     r.onresult = (e) => {
@@ -29,33 +37,70 @@ export default function DictationStep({ state, patch, onBack, onNext }) {
       for (let i = e.resultIndex; i < e.results.length; i++) {
         if (e.results[i].isFinal) finalText += e.results[i][0].transcript + " ";
       }
-      if (finalText) setTranscript((prev) => (prev ? prev + " " : "") + finalText.trim());
+      if (finalText) setTranscript((prev) => (prev ? `${prev} ` : "") + finalText.trim());
     };
-    r.onerror = () => setListening(false);
+    r.onerror = () => {
+      setListening(false);
+      toast.error("Microphone error — check browser permissions, or type the narrative.");
+    };
     r.onend = () => setListening(false);
     recogRef.current = r;
-    return () => { try { r.stop(); } catch {} };
+    return () => { try { r.stop(); } catch { /* ignore */ } };
   }, []);
+
+  // Keep wizard state in sync so header Back doesn't lose typed text.
+  useEffect(() => {
+    patch({ transcript });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [transcript]);
 
   const toggle = () => {
     if (!supported) { toast.error("Voice dictation isn't supported in this browser. Type your narrative instead."); return; }
     if (listening) { recogRef.current?.stop(); setListening(false); }
-    else { try { recogRef.current?.start(); setListening(true); } catch {} }
+    else { try { recogRef.current?.start(); setListening(true); } catch { toast.error("Could not start the microphone."); } }
   };
 
-  const useTemplate = () => setTranscript((prev) => (prev ? prev + "\n" : "") + script);
+  const useTemplate = () => setTranscript((prev) => (prev ? `${prev}\n` : "") + script);
 
-  const next = async () => {
+  const persistAnd = async (then) => {
     setBusy(true);
     try {
-      await api.post(`/pa/${state.requestId}/dictate`, { transcript });
-      patch({ transcript });
-      onNext();
+      await api.post(`/pa/${state.requestId}/dictate`, { transcript: transcriptRef.current });
+      const changed = transcriptRef.current !== savedOnServerRef.current;
+      savedOnServerRef.current = transcriptRef.current;
+      patch({
+        transcript: transcriptRef.current,
+        ...(changed ? { result: null } : {}),
+      });
+      then();
     } catch (e) {
       toast.error(formatApiError(e.response?.data?.detail));
     } finally {
       setBusy(false);
     }
+  };
+
+  const next = async () => {
+    if (!(transcript || "").trim()) {
+      toast.message("No narrative yet — you can continue, but adding clinical context improves approval odds.");
+    }
+    await persistAnd(onNext);
+  };
+
+  const back = async () => {
+    // Save draft before leaving so header/step Back never drops work.
+    try {
+      await api.post(`/pa/${state.requestId}/dictate`, { transcript: transcriptRef.current });
+      const changed = transcriptRef.current !== savedOnServerRef.current;
+      savedOnServerRef.current = transcriptRef.current;
+      patch({
+        transcript: transcriptRef.current,
+        ...(changed ? { result: null } : {}),
+      });
+    } catch {
+      patch({ transcript: transcriptRef.current });
+    }
+    onBack();
   };
 
   return (
@@ -67,7 +112,6 @@ export default function DictationStep({ state, patch, onBack, onNext }) {
         <span className="px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-xs font-semibold uppercase tracking-wider border border-emerald-100">{requestType} Auth</span>
       </div>
 
-      {/* Suggested script */}
       <div className="mt-6 rounded-lg bg-white border border-stone-300 p-6 shadow-sm">
         <div className="flex items-center justify-between">
           <span className="text-xs font-semibold uppercase tracking-wider text-stone-500">Suggested script</span>
@@ -84,7 +128,6 @@ export default function DictationStep({ state, patch, onBack, onNext }) {
         </p>
       </div>
 
-      {/* Recorder + transcript */}
       <div className="mt-6 rounded-2xl bg-white border border-stone-200 p-6 shadow-sm">
         <div className="flex items-center justify-between">
           <span className="text-xs font-semibold uppercase tracking-wider text-stone-500">Your narrative</span>
@@ -108,7 +151,7 @@ export default function DictationStep({ state, patch, onBack, onNext }) {
       </div>
 
       <div className="mt-8 flex items-center justify-between">
-        <Button data-testid="dictation-back-btn" variant="ghost" onClick={onBack} className="text-stone-500"><ArrowLeft className="w-4 h-4 mr-1.5" /> Back</Button>
+        <Button data-testid="dictation-back-btn" variant="ghost" onClick={back} disabled={busy} className="text-stone-500"><ArrowLeft className="w-4 h-4 mr-1.5" /> Back</Button>
         <Button data-testid="dictation-next-btn" onClick={next} disabled={busy}
           className="h-12 px-6 bg-emerald-900 hover:bg-emerald-800 text-white font-semibold rounded-md border border-emerald-950 transition-colors">
           {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <>Continue to validate <ArrowRight className="w-4 h-4 ml-2" /></>}

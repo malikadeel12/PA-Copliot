@@ -1,4 +1,8 @@
-// OCR via Google Document AI + reasoning/output via Anthropic Claude.
+// --- Change Summary ---
+// What: DocAI + Claude extraction; Vision path for handwritten/low-clarity clinical notes.
+// Why: Improve OCR accuracy on poor scans while keeping Form Parser off the cheap OCR path.
+// Related: docai.js, prompts.js, POST /pa/capture
+
 const Anthropic = require("@anthropic-ai/sdk");
 const { PA_REASONING_SYSTEM_PROMPT, OCR_EXTRACTION_PROMPT } = require("./prompts");
 const docai = require("./docai");
@@ -10,8 +14,6 @@ function client() {
   return new Anthropic({
     apiKey: process.env.ANTHROPIC_API_KEY,
     baseURL: "https://api.anthropic.com",
-    // Use Node's native fetch on Render instead of the legacy node-fetch shim
-    // bundled by older SDK versions. Retry transient network failures.
     fetch: globalThis.fetch,
     timeout: 90000,
     maxRetries: 4,
@@ -45,9 +47,55 @@ function logUsage(stage, resp) {
   });
 }
 
-// 1) Google Document AI OCRs images/PDFs; .docx/.txt are parsed locally.
-//    All results are merged into a single section-tagged text blob.
-// 2) Claude structures that text into the extraction JSON schema.
+function splitDataUrl(b64) {
+  if (b64 && b64.startsWith("data:") && b64.includes(",")) {
+    const [header, data] = b64.split(",", 2);
+    const m = header.match(/data:(.*?);base64/);
+    return { mimeType: m ? m[1] : "image/jpeg", content: data };
+  }
+  return { mimeType: "image/jpeg", content: b64 };
+}
+
+// Claude Vision: read handwritten / low-clarity clinical images that DocAI OCR missed.
+async function visionExtractText(file) {
+  const { mimeType, content } = splitDataUrl(file.content);
+  // Claude image blocks only accept images — never coerce PDF bytes to JPEG.
+  if (!mimeType.startsWith("image/")) {
+    return file.text || "";
+  }
+  const mediaType = mimeType;
+  const resp = await client().messages.create({
+    model: EXTRACTION_MODEL,
+    max_tokens: 2000,
+    system:
+      "You are a clinical OCR assistant. Transcribe ALL readable text from this " +
+      "handwritten or low-clarity clinical document. Preserve structure. " +
+      "Return plain text only — no JSON, no markdown fences.",
+    messages: [
+      {
+        role: "user",
+        content: [
+          {
+            type: "image",
+            source: { type: "base64", media_type: mediaType, data: content },
+          },
+          {
+            type: "text",
+            text:
+              `Section: ${file.section || "clinical"}. Filename: ${file.filename || "note"}. ` +
+              "Transcribe every legible word, including handwritten notes, doses, ICD codes, and signatures.",
+          },
+        ],
+      },
+    ],
+  });
+  logUsage("vision-ocr", resp);
+  return (textFromResponse(resp) || "").trim();
+}
+
+// 1) Google Document AI OCRs images/PDFs (OCR vs Form Parser by section).
+// 2) Low-clarity clinical/ID images → Claude Vision re-read.
+// 3) Claude structures the merged text into extraction JSON.
 async function extractDocuments(files) {
   if (!files || files.length === 0) throw new Error("No files provided");
   let perFile;
@@ -57,8 +105,23 @@ async function extractDocuments(files) {
     console.error("Document AI stage failed:", error.message, error.cause?.code || "");
     throw error;
   }
+
+  // --- Vision pipeline for handwritten / low-clarity non-insurance docs ---
+  for (const f of perFile) {
+    if (!f.needs_vision || !f.content) continue;
+    if (f.section === "insurance") continue;
+    try {
+      const visionText = await visionExtractText(f);
+      if (visionText && visionText.replace(/[^A-Za-z0-9]/g, "").length > (f.text || "").replace(/[^A-Za-z0-9]/g, "").length) {
+        f.text = visionText;
+        f.processor = `${f.processor}+claude_vision`;
+      }
+    } catch (e) {
+      console.warn("Claude Vision OCR failed (keeping DocAI text):", e.message);
+    }
+  }
+
   const ocrText = docai.filesToOcrText(perFile);
-  // Blur/unclear guard: too little readable text means the upload is unusable.
   if (!ocrText || ocrText.replace(/[^A-Za-z0-9]/g, "").length < 25) {
     const err = new Error("Unclear document: insufficient readable text");
     err.code = "UNCLEAR";
@@ -99,7 +162,6 @@ async function extractDocuments(files) {
 
 async function runReasoning(payload) {
   const userText =
-    // Compact JSON avoids paying for formatting whitespace on every request.
     "INPUT PAYLOAD:\n" + JSON.stringify(payload) +
     "\n\nReturn ONLY the JSON object per the schema.";
   let resp;
@@ -185,4 +247,4 @@ async function runReasoning(payload) {
   }
 }
 
-module.exports = { extractDocuments, runReasoning };
+module.exports = { extractDocuments, runReasoning, visionExtractText };
