@@ -71,7 +71,11 @@ if (config.enableHealthCheck) {
 
 let webpackConfig = {
   babel: {
-    plugins: ["@babel/plugin-transform-classes"],
+    plugins: [
+      "@babel/plugin-transform-classes",
+      "@babel/plugin-transform-class-properties",
+      "@babel/plugin-transform-private-property-in-object",
+    ],
   },
   eslint: {
     configure: {
